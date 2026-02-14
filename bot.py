@@ -29,14 +29,14 @@ from pyrogram.errors import (
 # -----------------------
 # CONFIG
 # -----------------------
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8520506313:AAFnJz6RbsTmfrDgelH6HAG0tW-0nHVrCD8')
-ADMIN_ID = int(os.getenv('ADMIN_ID', '8413263061'))
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8477235690:AAEfJzxOAWcI9NhYE4PZAcWt-qKnrMlfbs4')
+ADMIN_ID = int(os.getenv('ADMIN_ID', '8477195695'))
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority')
 API_ID = int(os.getenv('API_ID', '32892297'))
 API_HASH = os.getenv('API_HASH', 'b86cdf9bf87c9e61448cfedbd70f4b59')
 
 # MUST JOIN CHANNEL
-MUST_JOIN_CHANNEL = "@OGGY_OTP"
+MUST_JOIN_CHANNEL = "@YOUR_CHANNEL"
 
 # Referral commission percentage
 REFERRAL_COMMISSION = 1.5  # 1.5% per recharge
@@ -222,10 +222,19 @@ def add_referral_commission(referrer_id, recharge_amount, recharge_id):
             {"$inc": {"total_commission_earned": commission}}
         )
         
-        referrals_col.update_one(
-            {"referred_id": recharge_id.get("user_id"), "referrer_id": referrer_id},
-            {"$set": {"status": "completed", "commission": commission, "completed_at": datetime.utcnow()}}
-        )
+        # Fix: recharge_id is a string/ObjectId, not a dict
+        if isinstance(recharge_id, dict):
+            referred_user_id = recharge_id.get("user_id")
+        else:
+            # Get user_id from recharge record
+            recharge_record = recharges_col.find_one({"_id": ObjectId(recharge_id)})
+            referred_user_id = recharge_record.get("user_id") if recharge_record else None
+        
+        if referred_user_id:
+            referrals_col.update_one(
+                {"referred_id": referred_user_id, "referrer_id": referrer_id},
+                {"$set": {"status": "completed", "commission": commission, "completed_at": datetime.utcnow()}}
+            )
         
         try:
             bot.send_message(
@@ -932,17 +941,20 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
                 bot.answer_callback_query(call.id, "❌ Unauthorized", show_alert=True)
                 return
             
+            # Get all active countries from database
+            countries = get_all_countries()
+            
+            if not countries:
+                bot.answer_callback_query(call.id, "❌ No countries available. Add a country first.", show_alert=True)
+                return
+            
             login_states[user_id] = {
                 "step": "select_country",
                 "message_id": call.message.message_id,
                 "chat_id": call.message.chat.id
             }
             
-            countries = get_all_countries()
-            if not countries:
-                bot.answer_callback_query(call.id, "❌ No countries available. Add a country first.", show_alert=True)
-                return
-            
+            # Create markup with all countries
             markup = InlineKeyboardMarkup(row_width=2)
             for country in countries:
                 markup.add(InlineKeyboardButton(
@@ -954,8 +966,9 @@ Click the button below to join, then press VERIFY ✅</blockquote>"""
             edit_or_resend(
                 call.message.chat.id,
                 call.message.message_id,
-                "🌍 **Select Country for Account**\n\nChoose country:",
-                markup=markup
+                "🌍 **Select Country for Account**\n\nChoose a country to add account:",
+                markup=markup,
+                parse_mode="Markdown"
             )
         
         elif data.startswith("login_country_"):
@@ -1332,6 +1345,10 @@ def get_latest_otp(user_id, session_id, chat_id, callback_id):
             session_string = session_data.get("session_string")
             if not session_string:
                 bot.answer_callback_query(callback_id, "❌ No session string found", show_alert=True)
+                return
+            
+            if not account_manager:
+                bot.answer_callback_query(callback_id, "❌ Account module not loaded", show_alert=True)
                 return
             
             otp_code = account_manager.get_latest_otp_sync(session_string)
@@ -2779,18 +2796,20 @@ def process_purchase(user_id, account_id, chat_id, message_id, callback_id):
                 {"$set": {"used": True, "used_at": datetime.utcnow()}}
             )
         
-        def start_simple_monitoring():
-            try:
-                account_manager.start_simple_monitoring_sync(
-                    account.get('session_string', ''),
-                    session_id,
-                    1800
-                )
-            except Exception as e:
-                logger.error(f"Simple monitoring error: {e}")
-        
-        thread = threading.Thread(target=start_simple_monitoring, daemon=True)
-        thread.start()
+        # Start monitoring only if account_manager exists
+        if account_manager:
+            def start_simple_monitoring():
+                try:
+                    account_manager.start_simple_monitoring_sync(
+                        account.get('session_string', ''),
+                        session_id,
+                        1800
+                    )
+                except Exception as e:
+                    logger.error(f"Simple monitoring error: {e}")
+            
+            thread = threading.Thread(target=start_simple_monitoring, daemon=True)
+            thread.start()
         
         account_details = f"""✅ **Purchase Successful!** 
 
