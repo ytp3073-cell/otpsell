@@ -29,8 +29,8 @@ from pyrogram.errors import (
 # -----------------------
 # CONFIG
 # -----------------------
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8477235690:AAEfJzxOAWcI9NhYE4PZAcWt-qKnrMlfbs4')
-ADMIN_ID = int(os.getenv('ADMIN_ID', '8477195695'))
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8520506313:AAFnJz6RbsTmfrDgelH6HAG0tW-0nHVrCD8')
+ADMIN_ID = int(os.getenv('ADMIN_ID', '8413263061'))
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority')
 API_ID = int(os.getenv('API_ID', '32892297'))
 API_HASH = os.getenv('API_HASH', 'b86cdf9bf87c9e61448cfedbd70f4b59')
