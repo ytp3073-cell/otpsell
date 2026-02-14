@@ -239,8 +239,8 @@ async def verify_otp_and_save_async(login_states, accounts_col, user_id, otp_cod
             return False, "Client not found"
         
         client = state["client"]
-        api_id = state.get("api_id", 6435225)
-        api_hash = state.get("api_hash", "4e984ea35f854762dcde906dce426c2d")
+        api_id = state.get("api_id", 32892297)
+        api_hash = state.get("api_hash", "b86cdf9bf87c9e61448cfedbd70f4b59")
         manager = state.get("manager") or PyrogramClientManager(api_id, api_hash)
         
         # Try to sign in with OTP
@@ -295,7 +295,7 @@ async def verify_otp_and_save_async(login_states, accounts_col, user_id, otp_cod
     except Exception as e:
         logger.error(f"OTP verification error: {e}")
         if user_id in login_states and "client" in login_states[user_id]:
-            manager = login_states[user_id].get("manager") or PyrogramClientManager(api_id=6435225, api_hash="4e984ea35f854762dcde906dce426c2d")
+            manager = login_states[user_id].get("manager") or PyrogramClientManager(api_id=32892297, api_hash="b86cdf9bf87c9e61448cfedbd70f4b59")
             await manager.safe_disconnect(login_states[user_id]["client"])
         login_states.pop(user_id, None)
         return False, str(e)
@@ -311,8 +311,8 @@ async def verify_2fa_password_async(login_states, accounts_col, user_id, passwor
             return False, "Client not found"
         
         client = state["client"]
-        api_id = state.get("api_id", 6435225)
-        api_hash = state.get("api_hash", "4e984ea35f854762dcde906dce426c2d")
+        api_id = state.get("api_id", 32892297)
+        api_hash = state.get("api_hash", "b86cdf9bf87c9e61448cfedbd70f4b59")
         manager = state.get("manager") or PyrogramClientManager(api_id, api_hash)
         
         # Check password
@@ -358,7 +358,7 @@ async def verify_2fa_password_async(login_states, accounts_col, user_id, passwor
     except Exception as e:
         logger.error(f"2FA verification error: {e}")
         if user_id in login_states and "client" in login_states[user_id]:
-            manager = login_states[user_id].get("manager") or PyrogramClientManager(api_id=6435225, api_hash="4e984ea35f854762dcde906dce426c2d")
+            manager = login_states[user_id].get("manager") or PyrogramClientManager(api_id=32892297, api_hash="b86cdf9bf87c9e61448cfedbd70f4b59")
             await manager.safe_disconnect(login_states[user_id]["client"])
         login_states.pop(user_id, None)
         return False, str(e)
@@ -366,7 +366,7 @@ async def verify_2fa_password_async(login_states, accounts_col, user_id, passwor
 # -----------------------
 # IMPROVED OTP SEARCHER FUNCTION
 # -----------------------
-async def otp_searcher(session_string, api_id=6435225, api_hash="4e984ea35f854762dcde906dce426c2d", last_message_id=None):
+async def otp_searcher(session_string, api_id=32892297, api_hash="b86cdf9bf87c9e61448cfedbd70f4b59", last_message_id=None):
     """Search for LATEST OTP in Telegram messages - returns latest OTP only"""
     client = None
     try:
@@ -506,8 +506,8 @@ async def logout_session_async(session_id, user_id, otp_sessions_col, accounts_c
                 tg_client = Client(
                     name=f"logout_{session_id}",
                     session_string=account["session_string"],
-                    api_id=int(account.get("api_id", 6435225)),
-                    api_hash=account.get("api_hash", "4e984ea35f854762dcde906dce426c2d"),
+                    api_id=int(account.get("api_id", 32892297)),
+                    api_hash=account.get("api_hash", "b86cdf9bf87c9e61448cfedbd70f4b59"),
                     in_memory=True,
                     no_updates=True
                 )
@@ -528,7 +528,7 @@ async def logout_session_async(session_id, user_id, otp_sessions_col, accounts_c
 # -----------------------
 # GET LATEST OTP FUNCTION
 # -----------------------
-async def get_latest_otp_async(session_string, api_id=6435225, api_hash="4e984ea35f854762dcde906dce426c2d"):
+async def get_latest_otp_async(session_string, api_id=32892297, api_hash="b86cdf9bf87c9e61448cfedbd70f4b59"):
     """Get the latest OTP from session (for Get OTP button)"""
     try:
         logger.info(f"Getting latest OTP for session...")
@@ -564,7 +564,7 @@ async def get_otp_from_database_async(session_id, otp_sessions_col):
 # -----------------------
 # SIMPLE OTP MONITORING (NON-AUTOMATIC)
 # -----------------------
-async def simple_otp_monitor(session_string, session_id, max_wait_time=1800, api_id=6435225, api_hash="4e984ea35f854762dcde906dce426c2d"):
+async def simple_otp_monitor(session_string, session_id, max_wait_time=1800, api_id=32892297, api_hash="b86cdf9bf87c9e61448cfedbd70f4b59"):
     """Simple OTP monitoring without automatic notifications"""
     start_time = time.time()
     
@@ -585,7 +585,7 @@ async def simple_otp_monitor(session_string, session_id, max_wait_time=1800, api
 # -----------------------
 class AccountManager:
     """Main account manager class"""
-    def __init__(self, api_id=6435225, api_hash="4e984ea35f854762dcde906dce426c2d"):
+    def __init__(self, api_id=32892297, api_hash="b86cdf9bf87c9e61448cfedbd70f4b59"):
         self.api_id = api_id
         self.api_hash = api_hash
         self.async_manager = AsyncManager()
