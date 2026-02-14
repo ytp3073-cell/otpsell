@@ -36,7 +36,7 @@ API_ID = int(os.getenv('API_ID', '32892297'))
 API_HASH = os.getenv('API_HASH', 'b86cdf9bf87c9e61448cfedbd70f4b59')
 
 # MUST JOIN CHANNEL
-MUST_JOIN_CHANNEL = "@YOUR_CHANNEL"
+MUST_JOIN_CHANNEL = "@OGGY_OTP"
 
 # Referral commission percentage
 REFERRAL_COMMISSION = 1.5  # 1.5% per recharge
