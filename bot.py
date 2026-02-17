@@ -111,9 +111,10 @@ def get_main_keyboard():
         KeyboardButton("📞 Support"),
         KeyboardButton("ℹ️ About")
     )
-    keyboard.add(
-        KeyboardButton("👑 Admin Panel")
-    )
+    # Admin panel sirf admin ko dikhe
+    from_user_id = get_current_user_id()
+    if from_user_id and is_admin(from_user_id):
+        keyboard.add(KeyboardButton("👑 Admin Panel"))
     return keyboard
 
 def get_back_keyboard():
@@ -174,6 +175,16 @@ def get_loader_edit_keyboard():
         keyboard.add(KeyboardButton(f"📌 {data['name']}"))
     keyboard.add(KeyboardButton("🔙 Admin Panel"))
     return keyboard
+
+# Global variable to store current user for keyboard
+_current_user_id = None
+
+def set_current_user_id(user_id):
+    global _current_user_id
+    _current_user_id = user_id
+
+def get_current_user_id():
+    return _current_user_id
 
 # -----------------------
 # UTILITY FUNCTIONS
@@ -242,9 +253,19 @@ def refresh_categories():
     return KEY_CATEGORIES
 
 # -----------------------
+# DECORATOR TO SET USER ID
+# -----------------------
+def set_user_context(func):
+    def wrapper(message):
+        set_current_user_id(message.from_user.id)
+        return func(message)
+    return wrapper
+
+# -----------------------
 # START HANDLER
 # -----------------------
 @bot.message_handler(commands=['start'])
+@set_user_context
 def start(msg):
     user_id = msg.from_user.id
     
@@ -277,6 +298,7 @@ Use buttons below to navigate!"""
 # HELP COMMAND
 # -----------------------
 @bot.message_handler(commands=['help'])
+@set_user_context
 def help_command(msg):
     user_id = msg.from_user.id
     
@@ -299,11 +321,10 @@ def help_command(msg):
         text += "/keys - List all keys\n"
         text += "/users - List users\n"
         text += "/pending - View pending recharges\n"
-        text += "/approve [id] - Approve recharge\n"
         text += "/broadcast - Send broadcast\n"
         text += "/ban [user_id] - Ban a user\n"
         text += "/unban [user_id] - Unban a user\n"
-        text += "/addbalance [user_id] [amount] - Add balance\n"
+        text += "/addbalance [user_id] [amount] [reason] - Add balance\n"
         text += "/deduct [user_id] [amount] [reason] - Deduct balance\n"
         text += "/createcoupon [code] [amount] [uses] - Create coupon\n"
         text += "/deletecoupon [code] - Delete coupon\n"
@@ -318,6 +339,7 @@ def help_command(msg):
 # MAIN MENU
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🔙 Main Menu")
+@set_user_context
 def main_menu(msg):
     bot.send_message(msg.from_user.id, "🏠 Main Menu", reply_markup=get_main_keyboard())
 
@@ -326,6 +348,7 @@ def main_menu(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🛒 Buy Keys")
 @bot.message_handler(commands=['buy'])
+@set_user_context
 def buy_keys(msg):
     user_id = msg.from_user.id
     text = "🎮 **Select Loader:**\n\n"
@@ -344,6 +367,7 @@ def buy_keys(msg):
 # SHOW AVAILABLE KEYS in Category
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text in [d['name'] for d in KEY_CATEGORIES.values()])
+@set_user_context
 def show_keys(msg):
     user_id = msg.from_user.id
     category_name = msg.text
@@ -527,6 +551,7 @@ def cancel_view(call):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💰 Balance")
 @bot.message_handler(commands=['balance'])
+@set_user_context
 def show_balance(msg):
     user_id = msg.from_user.id
     balance = get_balance(user_id)
@@ -544,12 +569,14 @@ def show_balance(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💳 Recharge")
 @bot.message_handler(commands=['recharge'])
+@set_user_context
 def recharge(msg):
     user_id = msg.from_user.id
     bot.send_message(user_id, "💳 Enter amount (min ₹10):", reply_markup=get_back_keyboard())
     user_states[user_id] = "waiting_recharge"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "waiting_recharge")
+@set_user_context
 def process_recharge(msg):
     user_id = msg.from_user.id
     
@@ -582,12 +609,14 @@ UPI ID: `anurag99999@fam`
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🎁 Redeem Coupon")
 @bot.message_handler(commands=['coupon'])
+@set_user_context
 def redeem(msg):
     user_id = msg.from_user.id
     bot.send_message(user_id, "🎟 Enter coupon code:", reply_markup=get_back_keyboard())
     user_states[user_id] = "waiting_coupon"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "waiting_coupon")
+@set_user_context
 def process_coupon(msg):
     user_id = msg.from_user.id
     code = msg.text.strip().upper()
@@ -623,11 +652,13 @@ def process_coupon(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📞 Support")
 @bot.message_handler(commands=['support'])
+@set_user_context
 def support(msg):
     bot.send_message(msg.from_user.id, "📞 Contact: @UROGGY", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda msg: msg.text == "ℹ️ About")
 @bot.message_handler(commands=['about'])
+@set_user_context
 def about(msg):
     total = keys_col.count_documents({"status": "available"})
     sold = keys_col.count_documents({"status": "sold"})
@@ -646,6 +677,7 @@ def about(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "👑 Admin Panel")
 @bot.message_handler(commands=['admin'])
+@set_user_context
 def admin_panel(msg):
     if not is_admin(msg.from_user.id):
         bot.reply_to(msg, "❌ Unauthorized!")
@@ -678,6 +710,7 @@ def admin_panel(msg):
 # STATS COMMAND
 # -----------------------
 @bot.message_handler(commands=['stats'])
+@set_user_context
 def stats_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -701,6 +734,7 @@ def stats_command(msg):
 # EDIT LOADER NAME
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "✏️ Edit Loader Name" and is_admin(msg.from_user.id))
+@set_user_context
 def edit_loader_name_start(msg):
     user_id = msg.from_user.id
     
@@ -717,6 +751,7 @@ def edit_loader_name_start(msg):
     edit_loader_state[user_id] = {"action": "name", "step": "select"}
 
 @bot.message_handler(commands=['editname'])
+@set_user_context
 def edit_name_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -761,6 +796,7 @@ def edit_name_command(msg):
 
 @bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
                     msg.text.startswith("📌") and is_admin(msg.from_user.id))
+@set_user_context
 def handle_loader_selection(msg):
     user_id = msg.from_user.id
     selected_name = msg.text.replace("📌", "").strip()
@@ -790,6 +826,7 @@ def handle_loader_selection(msg):
 @bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
                     edit_loader_state[msg.from_user.id].get("step") == "waiting_name" and 
                     is_admin(msg.from_user.id))
+@set_user_context
 def handle_new_name(msg):
     user_id = msg.from_user.id
     new_name = msg.text.strip()
@@ -826,6 +863,7 @@ def handle_new_name(msg):
 # EDIT LOADER PRICE - FIXED
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💰 Edit Loader Price" and is_admin(msg.from_user.id))
+@set_user_context
 def edit_loader_price_start(msg):
     user_id = msg.from_user.id
     
@@ -842,6 +880,7 @@ def edit_loader_price_start(msg):
     edit_loader_state[user_id] = {"action": "price", "step": "select"}
 
 @bot.message_handler(commands=['editprice'])
+@set_user_context
 def edit_price_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -899,6 +938,7 @@ def edit_price_command(msg):
 @bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
                     edit_loader_state[msg.from_user.id].get("step") == "select" and 
                     msg.text.startswith("📌") and is_admin(msg.from_user.id))
+@set_user_context
 def handle_price_selection(msg):
     user_id = msg.from_user.id
     selected_name = msg.text.replace("📌", "").strip()
@@ -929,6 +969,7 @@ def handle_price_selection(msg):
 @bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
                     edit_loader_state[msg.from_user.id].get("step") == "waiting_price" and 
                     is_admin(msg.from_user.id))
+@set_user_context
 def handle_new_price(msg):
     user_id = msg.from_user.id
     
@@ -976,12 +1017,8 @@ def handle_new_price(msg):
 # ADD KEY
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
-@bot.message_handler(commands=['addkey'])
+@set_user_context
 def add_key_start(msg):
-    if isinstance(msg, telebot.types.Message) and msg.text.startswith('/addkey'):
-        bot.reply_to(msg, "Please use the button to add key:\n👑 Admin Panel → ➕ Add Key")
-        return
-        
     markup = InlineKeyboardMarkup(row_width=2)
     for key, data in KEY_CATEGORIES.items():
         markup.add(InlineKeyboardButton(f"{data['emoji']} {data['name']}", callback_data=f"addcat_{key}"))
@@ -1007,6 +1044,7 @@ def add_key_category(call):
 @bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and 
                     admin_add_key_state[msg.from_user.id].get("step") == "waiting_key" and 
                     is_admin(msg.from_user.id))
+@set_user_context
 def handle_key_code(msg):
     user_id = msg.from_user.id
     key_code = msg.text.strip()
@@ -1033,6 +1071,7 @@ def handle_key_code(msg):
 @bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and 
                     admin_add_key_state[msg.from_user.id].get("step") == "waiting_details" and 
                     is_admin(msg.from_user.id))
+@set_user_context
 def handle_details(msg):
     user_id = msg.from_user.id
     details = msg.text.strip()
@@ -1073,9 +1112,11 @@ def handle_details(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📋 Key List" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['keys'])
+@set_user_context
 def key_list(msg):
-    if isinstance(msg, telebot.types.Message) and msg.text.startswith('/keys'):
-        text = "📋 **All Keys**\n\n"
+    # Agar command se aaya hai to alag response
+    if msg.text.startswith('/keys'):
+        text = "📋 **All Keys (Last 20)**\n\n"
         all_keys = list(keys_col.find().sort("added_at", -1).limit(20))
         
         if not all_keys:
@@ -1090,6 +1131,7 @@ def key_list(msg):
         bot.reply_to(msg, text, parse_mode="Markdown")
         return
     
+    # Button se aaya hai to category wise count dikhao
     text = "📋 **Key Inventory**\n\n"
     
     for key, data in KEY_CATEGORIES.items():
@@ -1103,6 +1145,7 @@ def key_list(msg):
 # REMOVE KEY COMMAND
 # -----------------------
 @bot.message_handler(commands=['removekey'])
+@set_user_context
 def remove_key_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1126,34 +1169,29 @@ def remove_key_command(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 # -----------------------
-# REMOVE KEY - Sab keys show hongi
+# REMOVE KEY - Sab keys show hongi (Optimized)
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Remove Key" and is_admin(msg.from_user.id))
+@set_user_context
 def remove_key_start(msg):
     user_id = msg.from_user.id
     
-    all_keys = []
-    for cat_key, cat_data in KEY_CATEGORIES.items():
-        keys = list(keys_col.find({"category": cat_key, "status": "available"}).limit(5))
-        for k in keys:
-            all_keys.append(k)
+    # Sirf 10 keys dikhao pehle page mein
+    all_keys = list(keys_col.find({"status": "available"}).sort("added_at", -1).limit(10))
     
     if not all_keys:
         bot.send_message(user_id, "📭 No keys available to remove!")
         return
     
     text = "🗑 **Select Key to Remove**\n\n"
-    text += f"Total Available: {len(all_keys)} keys\n\n"
+    text += f"Showing 10 most recent keys\n\n"
     
     markup = InlineKeyboardMarkup(row_width=1)
-    for i, key in enumerate(all_keys[:10], 1):
+    for i, key in enumerate(all_keys, 1):
         cat_name = KEY_CATEGORIES[key['category']]['name'][:10]
         preview = key['details'][:30] + "..." if key.get('details') else "No details"
         btn_text = f"{i}. {cat_name} - {preview}"
         markup.add(InlineKeyboardButton(btn_text, callback_data=f"rem_{key['_id']}"))
-    
-    if len(all_keys) > 10:
-        markup.add(InlineKeyboardButton("📋 Next Page (Coming Soon)", callback_data="remove_next"))
     
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
@@ -1230,14 +1268,11 @@ def cancel_remove(call):
     bot.delete_message(call.message.chat.id, call.message.message_id)
     bot.answer_callback_query(call.id, "Cancelled")
 
-@bot.callback_query_handler(func=lambda call: call.data == "remove_next")
-def remove_next(call):
-    bot.answer_callback_query(call.id, "More keys coming in next update!", show_alert=True)
-
 # -----------------------
 # BULK ADD KEYS
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📦 Bulk Add Keys" and is_admin(msg.from_user.id))
+@set_user_context
 def bulk_add_start(msg):
     text = "📦 **Bulk Add Keys**\n\n"
     text += "Send keys in this format:\n\n"
@@ -1254,6 +1289,7 @@ def bulk_add_start(msg):
     user_states[msg.from_user.id] = "admin_bulk"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_bulk" and is_admin(msg.from_user.id))
+@set_user_context
 def process_bulk(msg):
     try:
         text = msg.text.strip()
@@ -1315,6 +1351,7 @@ def process_bulk(msg):
 # MANAGE CATEGORIES
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📁 Manage Categories" and is_admin(msg.from_user.id))
+@set_user_context
 def manage_categories(msg):
     text = "📁 **Loader Management**\n\n"
     
@@ -1334,6 +1371,7 @@ def manage_categories(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['addcat'])
+@set_user_context
 def add_category(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1369,6 +1407,7 @@ def add_category(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=['editcat'])
+@set_user_context
 def edit_category(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1400,6 +1439,7 @@ def edit_category(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=['delcat'])
+@set_user_context
 def delete_category(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1421,11 +1461,17 @@ def delete_category(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 # -----------------------
-# USERS LIST
+# USERS LIST - SIRF ADMIN KO DIKHE
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "👥 Users List" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['users'])
+@set_user_context
 def users_list(msg):
+    # Sirf admin check
+    if not is_admin(msg.from_user.id):
+        bot.reply_to(msg, "❌ Unauthorized!")
+        return
+    
     total = users_col.count_documents({})
     recent = list(users_col.find().sort("joined_at", -1).limit(10))
     
@@ -1444,6 +1490,7 @@ def users_list(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💸 Pending Recharges" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['pending'])
+@set_user_context
 def pending_recharges(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1603,6 +1650,7 @@ def reject_recharge_callback(call):
 # APPROVE RECHARGE BUTTON (for manual approval)
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "✅ Approve Recharge" and is_admin(msg.from_user.id))
+@set_user_context
 def approve_recharge_prompt(msg):
     bot.send_message(
         msg.from_user.id,
@@ -1613,6 +1661,7 @@ def approve_recharge_prompt(msg):
     user_states[msg.from_user.id] = "admin_approve_id"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_approve_id" and is_admin(msg.from_user.id))
+@set_user_context
 def process_approve_id(msg):
     try:
         req_id = ObjectId(msg.text.strip())
@@ -1656,63 +1705,14 @@ def process_approve_id(msg):
     user_states.pop(msg.from_user.id, None)
 
 # -----------------------
-# APPROVE COMMAND
-# -----------------------
-@bot.message_handler(commands=['approve'])
-def approve_command(msg):
-    if not is_admin(msg.from_user.id):
-        return
-    
-    try:
-        parts = msg.text.split()
-        if len(parts) != 2:
-            bot.reply_to(msg, "❌ Usage: /approve [request_id]")
-            return
-        
-        req_id = ObjectId(parts[1])
-        req = recharges_col.find_one({"_id": req_id, "status": "pending"})
-        
-        if not req:
-            bot.reply_to(msg, "❌ Request not found or already processed!")
-            return
-        
-        # Add balance
-        add_balance(req['user_id'], req['amount'])
-        
-        # Update request
-        recharges_col.update_one(
-            {"_id": req_id},
-            {"$set": {
-                "status": "approved",
-                "approved_by": msg.from_user.id,
-                "approved_at": datetime.utcnow()
-            }}
-        )
-        
-        # Notify user
-        try:
-            bot.send_message(
-                req['user_id'],
-                f"✅ **Recharge Approved!**\n\n"
-                f"💰 Amount: {format_currency(req['amount'])}\n"
-                f"💳 New Balance: {format_currency(get_balance(req['user_id']))}"
-            )
-        except:
-            pass
-        
-        bot.reply_to(msg, f"✅ Recharge approved for user {req['user_id']}!")
-        log_admin_action(msg.from_user.id, "APPROVE_RECHARGE", {"user": req['user_id'], "amount": req['amount']})
-        
-    except Exception as e:
-        bot.reply_to(msg, f"❌ Error: {str(e)}")
-
-# -----------------------
 # BROADCAST
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📢 Broadcast" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['broadcast'])
+@set_user_context
 def broadcast_start(msg):
-    if isinstance(msg, telebot.types.Message) and msg.text.startswith('/broadcast'):
+    # Agar command se aaya hai
+    if msg.text.startswith('/broadcast'):
         bot.reply_to(msg, "Please use the broadcast button:\n👑 Admin Panel → 📢 Broadcast")
         return
         
@@ -1721,6 +1721,7 @@ def broadcast_start(msg):
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_broadcast" and is_admin(msg.from_user.id),
                     content_types=['text', 'photo'])
+@set_user_context
 def process_broadcast(msg):
     users = list(users_col.find())
     sent = 0
@@ -1757,6 +1758,7 @@ def process_broadcast(msg):
 # BAN/UNBAN COMMANDS
 # -----------------------
 @bot.message_handler(commands=['ban'])
+@set_user_context
 def ban_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1800,6 +1802,7 @@ def ban_command(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=['unban'])
+@set_user_context
 def unban_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1832,11 +1835,13 @@ def unban_command(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(func=lambda msg: msg.text == "🚫 Ban User" and is_admin(msg.from_user.id))
+@set_user_context
 def ban_start(msg):
     bot.send_message(msg.from_user.id, "🚫 Enter user ID to ban:")
     user_states[msg.from_user.id] = "admin_ban"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_ban" and is_admin(msg.from_user.id))
+@set_user_context
 def process_ban(msg):
     try:
         target = int(msg.text.strip())
@@ -1865,11 +1870,13 @@ def process_ban(msg):
     user_states.pop(msg.from_user.id, None)
 
 @bot.message_handler(func=lambda msg: msg.text == "✅ Unban User" and is_admin(msg.from_user.id))
+@set_user_context
 def unban_start(msg):
     bot.send_message(msg.from_user.id, "✅ Enter user ID to unban:")
     user_states[msg.from_user.id] = "admin_unban"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_unban" and is_admin(msg.from_user.id))
+@set_user_context
 def process_unban(msg):
     try:
         target = int(msg.text.strip())
@@ -1896,6 +1903,7 @@ def process_unban(msg):
 # ADD/DEDUCT BALANCE COMMANDS
 # -----------------------
 @bot.message_handler(commands=['addbalance'])
+@set_user_context
 def add_balance_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -1945,6 +1953,7 @@ def add_balance_command(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=['deduct'])
+@set_user_context
 def deduct_balance_command(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -2000,16 +2009,19 @@ def deduct_balance_command(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(func=lambda msg: msg.text == "💳 Deduct Balance" and is_admin(msg.from_user.id))
+@set_user_context
 def deduct_start(msg):
     bot.send_message(msg.from_user.id, "💳 Enter user ID:")
     admin_deduct_state[msg.from_user.id] = {"step": "user", "type": "deduct"}
 
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Balance" and is_admin(msg.from_user.id))
+@set_user_context
 def add_balance_start(msg):
     bot.send_message(msg.from_user.id, "➕ Enter user ID:")
     admin_deduct_state[msg.from_user.id] = {"step": "user", "type": "add"}
 
 @bot.message_handler(func=lambda msg: msg.from_user.id in admin_deduct_state)
+@set_user_context
 def process_deduct_flow(msg):
     user_id = msg.from_user.id
     state = admin_deduct_state[user_id]
@@ -2106,6 +2118,7 @@ def process_deduct_flow(msg):
 # COUPONS
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🎟 Coupons" and is_admin(msg.from_user.id))
+@set_user_context
 def coupon_menu(msg):
     text = "🎟 **Coupon Management**\n\n"
     text += "**Commands:**\n"
@@ -2119,6 +2132,7 @@ def coupon_menu(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['createcoupon'])
+@set_user_context
 def create_coupon(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -2166,6 +2180,7 @@ def create_coupon(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=['deletecoupon'])
+@set_user_context
 def delete_coupon(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -2189,6 +2204,7 @@ def delete_coupon(msg):
         bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 @bot.message_handler(commands=['coupons'])
+@set_user_context
 def coupon_list(msg):
     if not is_admin(msg.from_user.id):
         return
@@ -2207,13 +2223,14 @@ def coupon_list(msg):
         text += f"  Used: {used}/{c['max_uses']}\n"
         text += f"  Created: {c['created_at'].strftime('%d/%m')}\n\n"
     
-    bot.send_message(msg.chat.id, text, parse_mode="Markdown")
+    bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 # -----------------------
 # SALES REPORT
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📈 Sales Report" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['sales'])
+@set_user_context
 def sales_report(msg):
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_sales = list(keys_col.find({"status": "sold", "sold_at": {"$gte": today}}))
@@ -2262,6 +2279,7 @@ def upi_paid_callback(call):
     bot.send_message(user_id, "📝 Enter 12-digit UTR number:")
 
 @bot.message_handler(func=lambda msg: upi_payment_states.get(msg.from_user.id, {}).get("step") == "utr")
+@set_user_context
 def handle_utr(msg):
     user_id = msg.from_user.id
     utr = msg.text.strip()
@@ -2275,6 +2293,7 @@ def handle_utr(msg):
     bot.send_message(user_id, "📸 Now send payment screenshot:")
 
 @bot.message_handler(content_types=['photo'], func=lambda msg: upi_payment_states.get(msg.from_user.id, {}).get("step") == "screenshot")
+@set_user_context
 def handle_screenshot(msg):
     user_id = msg.from_user.id
     data = upi_payment_states[user_id]
@@ -2309,6 +2328,7 @@ def handle_screenshot(msg):
 # FALLBACK HANDLER
 # -----------------------
 @bot.message_handler(func=lambda msg: True)
+@set_user_context
 def fallback(msg):
     if msg.from_user.id not in user_states and msg.from_user.id not in admin_deduct_state:
         bot.send_message(msg.from_user.id, "❌ Use buttons below!", reply_markup=get_main_keyboard())
