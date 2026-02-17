@@ -10,7 +10,7 @@ import telebot.types
 # -----------------------
 # CONFIG - YAHAN APNI VALUES DAALEIN
 # -----------------------
-BOT_TOKEN = '8477235690:AAGAjf1FJGxxJYG1I_229J_C-EBXphXAyzA'  # Apna bot token yahan daalein
+BOT_TOKEN = '8249817052:AAG4w0Xk3CF23PKjDhwyR3ga_q1N1By5_nc'  # Apna bot token yahan daalein
 ADMIN_ID = 8413263061  # Apna Telegram ID yahan daalein
 MONGO_URL = 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority'
 
@@ -508,7 +508,7 @@ def process_recharge(msg):
         caption = f"""💳 **UPI Payment**
 
 Amount: {format_currency(amount)}
-UPI ID: `your_upi@okhdfcbank`
+UPI ID: `anurag99999@fam`
 
 📌 Send payment and click I HAVE PAID"""
         
@@ -565,7 +565,7 @@ def process_coupon(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📞 Support")
 def support(msg):
-    bot.send_message(msg.from_user.id, "📞 Contact: @YourAdmin", reply_markup=get_main_keyboard())
+    bot.send_message(msg.from_user.id, "📞 Contact: @UROGGY", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda msg: msg.text == "ℹ️ About")
 def about(msg):
