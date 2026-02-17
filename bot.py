@@ -12,7 +12,7 @@ import telebot.types
 # -----------------------
 # CONFIG
 # -----------------------
-BOT_TOKEN = '8477235690:AAEUCputdxPMc3B_F3pXi6NR4WrbGb3t_h4'
+BOT_TOKEN = '8477235690:AAGAjf1FJGxxJYG1I_229J_C-EBXphXAyzA'
 ADMIN_ID = 8413263061  # Apna admin ID daalein
 MONGO_URL = 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority'
 
