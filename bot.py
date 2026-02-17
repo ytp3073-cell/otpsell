@@ -260,7 +260,7 @@ def main_menu(msg):
     bot.send_message(msg.from_user.id, "🏠 Main Menu", reply_markup=get_main_keyboard())
 
 # -----------------------
-# BUY KEYS
+# BUY KEYS - Category Selection
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🛒 Buy Keys")
 def buy_keys(msg):
@@ -277,6 +277,9 @@ def buy_keys(msg):
     
     bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=get_buy_keyboard())
 
+# -----------------------
+# SHOW AVAILABLE KEYS in Category
+# -----------------------
 @bot.message_handler(func=lambda msg: msg.text in [d['name'] for d in KEY_CATEGORIES.values()])
 def show_keys(msg):
     user_id = msg.from_user.id
@@ -302,19 +305,169 @@ def show_keys(msg):
         bot.send_message(user_id, f"❌ No {cat_data['name']} keys available!", reply_markup=get_buy_keyboard())
         return
     
-    text = f"{cat_data['emoji']} **{cat_data['name']}**\n\n"
-    text += f"💰 Price: {format_currency(cat_data['price'])}\n"
+    text = f"{cat_data['emoji']} **{cat_data['name']}**\n"
+    text += f"💰 Price: {format_currency(cat_data['price'])} per key\n"
     text += f"📦 Available: {len(keys)}\n\n"
-    text += "**Select a key:**\n"
+    text += "**👇 Select a key to view details:**\n"
     
     markup = InlineKeyboardMarkup(row_width=2)
     for i, key in enumerate(keys[:8], 1):
-        btn_text = f"Key #{i}"
+        # Show if key has details
         if key.get('details'):
-            btn_text += " 📝"
+            btn_text = f"📝 Key #{i} (Has Details)"
+        else:
+            btn_text = f"🔑 Key #{i}"
         markup.add(InlineKeyboardButton(btn_text, callback_data=f"view_{key['_id']}"))
     
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
+
+# -----------------------
+# VIEW KEY DETAILS (Before Purchase)
+# -----------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("view_"))
+def view_key_details(call):
+    user_id = call.from_user.id
+    key_id = call.data.replace("view_", "")
+    
+    try:
+        key = keys_col.find_one({"_id": ObjectId(key_id)})
+        if not key or key['status'] != 'available':
+            bot.answer_callback_query(call.id, "❌ Key not available!", show_alert=True)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            return
+        
+        cat_data = KEY_CATEGORIES[key['category']]
+        
+        # Build details message - Show whatever admin added
+        text = f"{cat_data['emoji']} **{cat_data['name']}**\n"
+        text += f"💰 **Price:** {format_currency(key['price'])}\n\n"
+        
+        if key.get('details'):
+            # Show exactly what admin added - no key code
+            text += f"📝 **Key Details:**\n```\n{key['details']}\n```\n"
+        else:
+            # If no details, show simple message
+            text += "ℹ️ No additional details available.\n\n"
+        
+        text += "🛒 **Do you want to purchase this key?**"
+        
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton("✅ Yes, Buy Now", callback_data=f"buy_{key_id}"),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_view")
+        )
+        
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"View error: {e}")
+        bot.answer_callback_query(call.id, "❌ Error loading details!", show_alert=True)
+
+# -----------------------
+# PROCESS PURCHASE
+# -----------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
+def process_purchase(call):
+    user_id = call.from_user.id
+    key_id = call.data.replace("buy_", "")
+    
+    try:
+        key = keys_col.find_one({"_id": ObjectId(key_id), "status": "available"})
+        if not key:
+            bot.answer_callback_query(call.id, "❌ Key sold out!", show_alert=True)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            return
+        
+        balance = get_balance(user_id)
+        price = key['price']
+        
+        if balance < price:
+            bot.answer_callback_query(
+                call.id, 
+                f"❌ Insufficient balance! Need {format_currency(price)}", 
+                show_alert=True
+            )
+            return
+        
+        # Process purchase
+        deduct_balance(user_id, price)
+        
+        # Update key status
+        keys_col.update_one(
+            {"_id": ObjectId(key_id)},
+            {"$set": {
+                "status": "sold",
+                "sold_to": user_id,
+                "sold_at": datetime.utcnow()
+            }}
+        )
+        
+        # Update user stats
+        users_col.update_one(
+            {"user_id": user_id},
+            {"$inc": {
+                "total_purchases": 1,
+                "total_spent": price
+            }}
+        )
+        
+        # Save order
+        orders_col.insert_one({
+            "user_id": user_id,
+            "key_id": key_id,
+            "key": key['key'],
+            "category": key['category'],
+            "price": price,
+            "details": key.get('details', ''),
+            "purchased_at": datetime.utcnow()
+        })
+        
+        cat_data = KEY_CATEGORIES[key['category']]
+        
+        # AFTER PURCHASE - Show ONLY the details (no key code)
+        if key.get('details'):
+            # Show exactly what admin added
+            text = f"✅ **Purchase Successful!**\n\n"
+            text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
+            text += f"💰 Paid: {format_currency(price)}\n"
+            text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
+            text += f"📝 **Your Key Details:**\n```\n{key['details']}\n```\n"
+            text += "✨ Save these details and use in game!"
+        else:
+            # Fallback if no details
+            text = f"✅ **Purchase Successful!**\n\n"
+            text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
+            text += f"💰 Paid: {format_currency(price)}\n"
+            text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
+            text += f"ℹ️ Contact admin if you don't receive key."
+        
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode="Markdown"
+        )
+        
+        bot.answer_callback_query(call.id, "✅ Key purchased!", show_alert=True)
+        
+    except Exception as e:
+        logger.error(f"Purchase error: {e}")
+        bot.answer_callback_query(call.id, "❌ Purchase failed!", show_alert=True)
+
+# -----------------------
+# CANCEL VIEW
+# -----------------------
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_view")
+def cancel_view(call):
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id, "Cancelled")
 
 # -----------------------
 # BALANCE
@@ -456,7 +609,7 @@ def admin_panel(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown", reply_markup=get_admin_keyboard())
 
 # -----------------------
-# ADD KEY
+# ADD KEY (Single with Details)
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
 def add_key_start(msg):
@@ -465,6 +618,64 @@ def add_key_start(msg):
         markup.add(InlineKeyboardButton(f"{data['emoji']} {data['name']}", callback_data=f"addcat_{key}"))
     
     bot.send_message(msg.from_user.id, "📝 Select category:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("addcat_"))
+def add_key_category(call):
+    category = call.data.replace("addcat_", "")
+    admin_add_key_state[call.from_user.id] = {"category": category}
+    
+    bot.edit_message_text(
+        f"📝 **Add Key for {KEY_CATEGORIES[category]['name']}**\n\n"
+        f"Send the key details in this format:\n\n"
+        f"`🎮 Brutal Server - Asia`\n"
+        f"`Email: example@gmail.com`\n"
+        f"`Password: bgmi123`\n"
+        f"`Server: Asia`\n\n"
+        f"Or send any text you want users to see after purchase.\n"
+        f"**The key code will NOT be shown - only these details!**",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="Markdown"
+    )
+    bot.answer_callback_query(call.id)
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and is_admin(msg.from_user.id))
+def handle_add_key(msg):
+    user_id = msg.from_user.id
+    category = admin_add_key_state[user_id]['category']
+    details = msg.text.strip()
+    
+    if not details:
+        bot.send_message(user_id, "❌ Details cannot be empty!")
+        return
+    
+    # Generate a unique key ID for database (hidden from users)
+    key_id = f"KEY{int(time.time())}{user_id}"
+    
+    keys_col.insert_one({
+        "key": key_id,
+        "category": category,
+        "price": KEY_CATEGORIES[category]['price'],
+        "details": details,
+        "status": "available",
+        "added_by": user_id,
+        "added_at": datetime.utcnow()
+    })
+    
+    count = keys_col.count_documents({"category": category, "status": "available"})
+    
+    bot.send_message(
+        user_id,
+        f"✅ **Key Added Successfully!**\n\n"
+        f"Category: {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
+        f"Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
+        f"Available in category: {count}\n\n"
+        f"📝 **Details saved:**\n```\n{details}\n```\n\n"
+        f"Users will see these exact details after purchase."
+    )
+    
+    log_admin_action(user_id, "ADD_KEY", {"category": category})
+    admin_add_key_state.pop(user_id, None)
 
 # -----------------------
 # KEY LIST
@@ -485,17 +696,17 @@ def key_list(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Remove Key" and is_admin(msg.from_user.id))
 def remove_key_start(msg):
-    bot.send_message(msg.from_user.id, "🗑 Enter key code to remove:")
+    bot.send_message(msg.from_user.id, "🗑 Enter key ID to remove:")
     user_states[msg.from_user.id] = "admin_remove"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_remove" and is_admin(msg.from_user.id))
 def process_remove(msg):
-    key_code = msg.text.strip()
-    result = keys_col.delete_one({"key": key_code})
+    key_id = msg.text.strip()
+    result = keys_col.delete_one({"key": key_id})
     
     if result.deleted_count > 0:
-        bot.send_message(msg.from_user.id, f"✅ Key `{key_code}` removed!")
-        log_admin_action(msg.from_user.id, "REMOVE_KEY", {"key": key_code})
+        bot.send_message(msg.from_user.id, f"✅ Key removed!")
+        log_admin_action(msg.from_user.id, "REMOVE_KEY", {})
     else:
         bot.send_message(msg.from_user.id, f"❌ Key not found!")
     
@@ -507,10 +718,11 @@ def process_remove(msg):
 @bot.message_handler(func=lambda msg: msg.text == "📦 Bulk Add Keys" and is_admin(msg.from_user.id))
 def bulk_add_start(msg):
     text = "📦 **Bulk Add Keys**\n\n"
-    text += "Format: `category:key1|details,key2,key3|details`\n\n"
+    text += "Send keys in this format:\n\n"
+    text += "`category:details1,details2,details3`\n\n"
     text += "Examples:\n"
-    text += "• `weekend:KEY123,KEY456`\n"
-    text += "• `weekend:KEY1|Brutal Server - Asia,KEY2|Brutal - Europe`\n\n"
+    text += "• `weekend:🎮 Brutal Asia,🎮 Brutal Europe,🎮 Brutal India`\n"
+    text += "• `royalty:🏆 30 Days Pass,🏆 60 Days Pass,🏆 90 Days Pass`\n\n"
     text += "Categories:\n"
     
     for key, data in KEY_CATEGORIES.items():
@@ -526,29 +738,21 @@ def process_bulk(msg):
         if ':' not in text:
             raise ValueError("Invalid format")
         
-        category, keys_str = text.split(':', 1)
+        category, items_str = text.split(':', 1)
         category = category.strip().lower()
         
         if category not in KEY_CATEGORIES:
             bot.send_message(msg.from_user.id, f"❌ Invalid category!")
             return
         
-        items = [k.strip() for k in keys_str.split(',') if k.strip()]
+        items = [k.strip() for k in items_str.split(',') if k.strip()]
         added = 0
-        duplicates = 0
         
-        for item in items:
-            if '|' in item:
-                key_code, details = item.split('|', 1)
-            else:
-                key_code, details = item, ""
-            
-            if keys_col.find_one({"key": key_code}):
-                duplicates += 1
-                continue
+        for details in items:
+            key_id = f"KEY{int(time.time())}{msg.from_user.id}{added}"
             
             keys_col.insert_one({
-                "key": key_code,
+                "key": key_id,
                 "category": category,
                 "price": KEY_CATEGORIES[category]['price'],
                 "details": details,
@@ -557,8 +761,9 @@ def process_bulk(msg):
                 "added_at": datetime.utcnow()
             })
             added += 1
+            time.sleep(0.1)
         
-        bot.send_message(msg.from_user.id, f"✅ Added: {added}, Duplicates: {duplicates}")
+        bot.send_message(msg.from_user.id, f"✅ Added {added} keys to {KEY_CATEGORIES[category]['name']}")
         log_admin_action(msg.from_user.id, "BULK_ADD", {"category": category, "added": added})
         
     except Exception as e:
@@ -1013,136 +1218,21 @@ def sales_report(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 # -----------------------
-# CALLBACK HANDLERS
-# -----------------------
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callbacks(call):
-    user_id = call.from_user.id
-    data = call.data
-    
-    if data.startswith("addcat_"):
-        category = data.replace("addcat_", "")
-        admin_add_key_state[user_id] = {"category": category}
-        
-        bot.edit_message_text(
-            f"📝 Enter key for {KEY_CATEGORIES[category]['name']}:\n"
-            f"Format: KEY or KEY|details",
-            call.message.chat.id,
-            call.message.message_id
-        )
-        bot.answer_callback_query(call.id)
-    
-    elif data.startswith("view_"):
-        key_id = data.replace("view_", "")
-        
-        try:
-            key = keys_col.find_one({"_id": ObjectId(key_id)})
-            if not key or key['status'] != 'available':
-                bot.answer_callback_query(call.id, "❌ Not available!", show_alert=True)
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                return
-            
-            cat = KEY_CATEGORIES[key['category']]
-            
-            text = f"{cat['emoji']} **{cat['name']}**\n\n"
-            text += f"💰 Price: {format_currency(key['price'])}\n\n"
-            
-            if key.get('details'):
-                text += f"📝 **Details:**\n{key['details']}\n\n"
-            else:
-                text += f"🔑 **Key:** `{key['key']}`\n\n"
-            
-            text += "Buy this key?"
-            
-            markup = InlineKeyboardMarkup()
-            markup.add(
-                InlineKeyboardButton("✅ Buy", callback_data=f"buy_{key_id}"),
-                InlineKeyboardButton("❌ Cancel", callback_data="cancel")
-            )
-            
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                                 reply_markup=markup, parse_mode="Markdown")
-            bot.answer_callback_query(call.id)
-            
-        except Exception as e:
-            bot.answer_callback_query(call.id, "❌ Error!", show_alert=True)
-    
-    elif data.startswith("buy_"):
-        key_id = data.replace("buy_", "")
-        
-        try:
-            key = keys_col.find_one({"_id": ObjectId(key_id), "status": "available"})
-            if not key:
-                bot.answer_callback_query(call.id, "❌ Not available!", show_alert=True)
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                return
-            
-            balance = get_balance(user_id)
-            price = key['price']
-            
-            if balance < price:
-                bot.answer_callback_query(call.id, f"❌ Need {format_currency(price)}!", show_alert=True)
-                return
-            
-            # Process purchase
-            deduct_balance(user_id, price)
-            
-            keys_col.update_one({"_id": ObjectId(key_id)}, {"$set": {
-                "status": "sold",
-                "sold_to": user_id,
-                "sold_at": datetime.utcnow()
-            }})
-            
-            users_col.update_one({"user_id": user_id}, {"$inc": {
-                "total_purchases": 1,
-                "total_spent": price
-            }})
-            
-            orders_col.insert_one({
-                "user_id": user_id,
-                "key_id": key_id,
-                "key": key['key'],
-                "category": key['category'],
-                "price": price,
-                "details": key.get('details', ''),
-                "purchased_at": datetime.utcnow()
-            })
-            
-            # Send purchase confirmation
-            cat = KEY_CATEGORIES[key['category']]
-            text = f"✅ **Purchase Successful!**\n\n"
-            text += f"🎮 {cat['emoji']} {cat['name']}\n"
-            text += f"💰 Price: {format_currency(price)}\n"
-            text += f"💳 New Balance: {format_currency(get_balance(user_id))}\n\n"
-            
-            if key.get('details'):
-                text += f"📝 **Details:**\n{key['details']}\n"
-            else:
-                text += f"🔑 **Key:** `{key['key']}`\n"
-            
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
-            bot.answer_callback_query(call.id, "✅ Purchased!", show_alert=True)
-            
-        except Exception as e:
-            bot.answer_callback_query(call.id, "❌ Failed!", show_alert=True)
-    
-    elif data == "cancel":
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        bot.answer_callback_query(call.id, "Cancelled")
-    
-    elif data == "upi_paid":
-        amount = upi_payment_states.get(user_id, {}).get("amount", 0)
-        if amount <= 0:
-            bot.answer_callback_query(call.id, "❌ Error!", show_alert=True)
-            return
-        
-        bot.answer_callback_query(call.id, "📝 Send UTR number")
-        upi_payment_states[user_id] = {"amount": amount, "step": "utr"}
-        bot.send_message(user_id, "📝 Enter 12-digit UTR number:")
-
-# -----------------------
 # UPI PAYMENT HANDLERS
 # -----------------------
+@bot.callback_query_handler(func=lambda call: call.data == "upi_paid")
+def upi_paid_callback(call):
+    user_id = call.from_user.id
+    amount = upi_payment_states.get(user_id, {}).get("amount", 0)
+    
+    if amount <= 0:
+        bot.answer_callback_query(call.id, "❌ Error!", show_alert=True)
+        return
+    
+    bot.answer_callback_query(call.id, "📝 Send UTR number")
+    upi_payment_states[user_id] = {"amount": amount, "step": "utr"}
+    bot.send_message(user_id, "📝 Enter 12-digit UTR number:")
+
 @bot.message_handler(func=lambda msg: upi_payment_states.get(msg.from_user.id, {}).get("step") == "utr")
 def handle_utr(msg):
     user_id = msg.from_user.id
@@ -1179,48 +1269,6 @@ def handle_screenshot(msg):
     
     bot.send_message(user_id, "✅ Payment submitted! Admin will approve soon.", reply_markup=get_main_keyboard())
     upi_payment_states.pop(user_id, None)
-
-# -----------------------
-# ADD KEY HANDLER
-# -----------------------
-@bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and is_admin(msg.from_user.id))
-def handle_add_key(msg):
-    user_id = msg.from_user.id
-    category = admin_add_key_state[user_id]['category']
-    
-    text = msg.text.strip()
-    
-    if '|' in text:
-        key_code, details = text.split('|', 1)
-    else:
-        key_code, details = text, ""
-    
-    if keys_col.find_one({"key": key_code}):
-        bot.send_message(user_id, f"❌ Key {key_code} exists! Try another:")
-        return
-    
-    keys_col.insert_one({
-        "key": key_code,
-        "category": category,
-        "price": KEY_CATEGORIES[category]['price'],
-        "details": details,
-        "status": "available",
-        "added_by": user_id,
-        "added_at": datetime.utcnow()
-    })
-    
-    count = keys_col.count_documents({"category": category, "status": "available"})
-    
-    bot.send_message(
-        user_id,
-        f"✅ Key added!\n"
-        f"Category: {KEY_CATEGORIES[category]['name']}\n"
-        f"Key: {key_code}\n"
-        f"Available: {count}"
-    )
-    
-    log_admin_action(user_id, "ADD_KEY", {"category": category, "key": key_code[:20]})
-    admin_add_key_state.pop(user_id, None)
 
 # -----------------------
 # FALLBACK HANDLER
