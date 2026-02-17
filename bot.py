@@ -1,5 +1,4 @@
 import logging
-import logging
 import threading
 import time
 from datetime import datetime, timedelta
@@ -324,7 +323,7 @@ def show_keys(msg):
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
 # -----------------------
-# VIEW KEY DETAILS (Before Purchase) - Admin ki details yahan show hogi
+# VIEW KEY DETAILS (Before Purchase) - SIRF DETAILS DIKHENGE, KEY NAHI
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_"))
 def view_key_details(call):
@@ -340,7 +339,7 @@ def view_key_details(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # 🎯 Admin ne jo details dali hain, wahi show karo
+        # 🎯 SIRF DETAILS DIKHENGE - KEY CODE NAHI DIKHEGA
         text = f"{cat_data['emoji']} **{cat_data['name']}**\n"
         text += f"💰 **Price:** {format_currency(key['price'])}\n\n"
         
@@ -372,7 +371,7 @@ def view_key_details(call):
         bot.answer_callback_query(call.id, "❌ Error loading details!", show_alert=True)
 
 # -----------------------
-# PROCESS PURCHASE - Key yahan show hogi
+# PROCESS PURCHASE - DETAILS + KEY DONO DIKHENGE
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def process_purchase(call):
@@ -432,19 +431,20 @@ def process_purchase(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # 🎯 AFTER PURCHASE - Key show karo
+        # 🎯 AFTER PURCHASE - DETAILS + KEY DONO DIKHENGE
         text = f"✅ **Purchase Successful!**\n\n"
         text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
         text += f"💰 Paid: {format_currency(price)}\n"
         text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
         
-        # Key show karo
+        # Pehle details dikhao
         if key.get('details'):
-            text += f"🔑 **Your Key Details:**\n```\n{key['details']}\n```\n"
-        else:
-            text += f"🔑 **Your Key:**\n`{key['key']}`\n"
+            text += f"📝 **Key Details:**\n```\n{key['details']}\n```\n\n"
         
-        text += "\n✨ Save these details and use in game!"
+        # Phir key code dikhao - YEH SIRF YAHAN DIKHEGA
+        text += f"🔑 **Your Key Code:**\n`{key['key']}`\n\n"
+        
+        text += "✨ Save these details and use in game!"
         
         bot.edit_message_text(
             text,
@@ -607,7 +607,7 @@ def admin_panel(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown", reply_markup=get_admin_keyboard())
 
 # -----------------------
-# ADD KEY (Single with Details) - Admin yahan details dalega
+# ADD KEY - YAHAN ADMIN DETAILS AUR KEY CODE DONO DALEGA
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
 def add_key_start(msg):
@@ -620,43 +620,65 @@ def add_key_start(msg):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("addcat_"))
 def add_key_category(call):
     category = call.data.replace("addcat_", "")
-    admin_add_key_state[call.from_user.id] = {"category": category}
+    admin_add_key_state[call.from_user.id] = {"category": category, "step": "waiting_key"}
     
     bot.edit_message_text(
         f"📝 **Add Key for {KEY_CATEGORIES[category]['name']}**\n\n"
-        f"Send the key details in this format:\n\n"
-        f"`🎮 Brutal Server - Asia`\n"
-        f"`Email: example@gmail.com`\n"
-        f"`Password: bgmi123`\n"
-        f"`Server: Asia`\n\n"
-        f"**YEH DETAILS DONO JAGAH DIKHENGE:**\n"
-        f"1. **Kharidne se pehle** - Preview mein\n"
-        f"2. **Kharidne ke baad** - Final key mein\n\n"
-        f"Jo bhi details aap daloge, wahi user ko milega!",
+        f"**Step 1:** Send the KEY CODE first\n"
+        f"(Ye sirf buy ke baad dikhega)\n\n"
+        f"Example: `BRUTAL123456`",
         call.message.chat.id,
         call.message.message_id,
         parse_mode="Markdown"
     )
     bot.answer_callback_query(call.id)
 
-@bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and is_admin(msg.from_user.id))
-def handle_add_key(msg):
+@bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and 
+                    admin_add_key_state[msg.from_user.id].get("step") == "waiting_key" and 
+                    is_admin(msg.from_user.id))
+def handle_key_code(msg):
     user_id = msg.from_user.id
-    category = admin_add_key_state[user_id]['category']
-    details = msg.text.strip()
+    key_code = msg.text.strip()
     
-    if not details:
-        bot.send_message(user_id, "❌ Details cannot be empty!")
+    if not key_code:
+        bot.send_message(user_id, "❌ Key code cannot be empty! Send key code:")
         return
     
-    # Generate a unique key ID for database
-    key_id = f"KEY{int(time.time())}{user_id}"
+    # Store key code and move to next step
+    admin_add_key_state[user_id]["key_code"] = key_code
+    admin_add_key_state[user_id]["step"] = "waiting_details"
     
+    bot.send_message(
+        user_id,
+        f"✅ Key code saved: `{key_code}`\n\n"
+        f"**Step 2:** Now send the DETAILS\n"
+        f"(Ye preview mein aur buy ke baad dono jagah dikhega)\n\n"
+        f"Example:\n"
+        f"`🎮 Brutal Server - Asia`\n"
+        f"`Email: brutal@gmail.com`\n"
+        f"`Password: bgmi123`\n"
+        f"`Server: Asia`"
+    )
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in admin_add_key_state and 
+                    admin_add_key_state[msg.from_user.id].get("step") == "waiting_details" and 
+                    is_admin(msg.from_user.id))
+def handle_details(msg):
+    user_id = msg.from_user.id
+    details = msg.text.strip()
+    category = admin_add_key_state[user_id]['category']
+    key_code = admin_add_key_state[user_id]['key_code']
+    
+    if not details:
+        bot.send_message(user_id, "❌ Details cannot be empty! Send details:")
+        return
+    
+    # Save to database
     keys_col.insert_one({
-        "key": key_id,
+        "key": key_code,
         "category": category,
         "price": KEY_CATEGORIES[category]['price'],
-        "details": details,  # Yeh details dono jagah use hongi
+        "details": details,
         "status": "available",
         "added_by": user_id,
         "added_at": datetime.utcnow()
@@ -670,7 +692,8 @@ def handle_add_key(msg):
         f"Category: {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
         f"Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
         f"Available in category: {count}\n\n"
-        f"📝 **Details saved (yeh dikhenge user ko):**\n```\n{details}\n```"
+        f"🔑 **Key Code (Sirf buy ke baad dikhega):**\n`{key_code}`\n\n"
+        f"📝 **Details (Preview aur buy ke baad dono jagah dikhenge):**\n```\n{details}\n```"
     )
     
     log_admin_action(user_id, "ADD_KEY", {"category": category})
@@ -712,7 +735,7 @@ def remove_key_start(msg):
     text += f"Total Available: {len(all_keys)} keys\n\n"
     
     markup = InlineKeyboardMarkup(row_width=1)
-    for i, key in enumerate(all_keys[:10], 1):  # Max 10 keys show karo
+    for i, key in enumerate(all_keys[:10], 1):
         cat_name = KEY_CATEGORIES[key['category']]['name'][:10]
         preview = key['details'][:30] + "..." if key.get('details') else "No details"
         btn_text = f"{i}. {cat_name} - {preview}"
@@ -738,7 +761,7 @@ def confirm_remove(call):
         
         text = f"🗑 **Confirm Removal**\n\n"
         text += f"Category: {cat_name}\n"
-        text += f"Key ID: `{key['key']}`\n\n"
+        text += f"Key Code: `{key['key']}`\n\n"
         
         if key.get('details'):
             text += f"📝 **Details:**\n```\n{key['details']}\n```\n\n"
@@ -779,7 +802,7 @@ def process_remove(call):
         bot.edit_message_text(
             f"✅ **Key Removed Successfully!**\n\n"
             f"Category: {KEY_CATEGORIES[key['category']]['name']}\n"
-            f"Key ID: `{key['key']}`",
+            f"Key Code: `{key['key']}`",
             call.message.chat.id,
             call.message.message_id,
             parse_mode="Markdown"
@@ -801,16 +824,16 @@ def remove_next(call):
     bot.answer_callback_query(call.id, "More keys coming in next update!", show_alert=True)
 
 # -----------------------
-# BULK ADD KEYS
+# BULK ADD KEYS - Updated for key code + details
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📦 Bulk Add Keys" and is_admin(msg.from_user.id))
 def bulk_add_start(msg):
     text = "📦 **Bulk Add Keys**\n\n"
     text += "Send keys in this format:\n\n"
-    text += "`category:details1,details2,details3`\n\n"
+    text += "`category:keycode|details,keycode|details,keycode|details`\n\n"
     text += "Examples:\n"
-    text += "• `weekend:🎮 Brutal Asia,🎮 Brutal Europe,🎮 Brutal India`\n"
-    text += "• `royalty:🏆 30 Days Pass,🏆 60 Days Pass,🏆 90 Days Pass`\n\n"
+    text += "• `weekend:BRUTAL123|🎮 Brutal Asia,BRUTAL456|🎮 Brutal Europe`\n"
+    text += "• `royalty:ROYAL30|🏆 30 Days Pass,ROYAL60|🏆 60 Days Pass`\n\n"
     text += "Categories:\n"
     
     for key, data in KEY_CATEGORIES.items():
@@ -835,24 +858,44 @@ def process_bulk(msg):
         
         items = [k.strip() for k in items_str.split(',') if k.strip()]
         added = 0
+        errors = 0
         
-        for details in items:
-            key_id = f"KEY{int(time.time())}{msg.from_user.id}{added}"
-            
-            keys_col.insert_one({
-                "key": key_id,
-                "category": category,
-                "price": KEY_CATEGORIES[category]['price'],
-                "details": details,
-                "status": "available",
-                "added_by": msg.from_user.id,
-                "added_at": datetime.utcnow()
-            })
-            added += 1
-            time.sleep(0.1)
+        for item in items:
+            try:
+                if '|' in item:
+                    key_code, details = item.split('|', 1)
+                else:
+                    # If no details, use key code as details too
+                    key_code = item
+                    details = item
+                
+                key_code = key_code.strip()
+                details = details.strip()
+                
+                # Check if key already exists
+                if keys_col.find_one({"key": key_code}):
+                    errors += 1
+                    continue
+                
+                keys_col.insert_one({
+                    "key": key_code,
+                    "category": category,
+                    "price": KEY_CATEGORIES[category]['price'],
+                    "details": details,
+                    "status": "available",
+                    "added_by": msg.from_user.id,
+                    "added_at": datetime.utcnow()
+                })
+                added += 1
+                
+            except Exception as e:
+                errors += 1
         
-        bot.send_message(msg.from_user.id, f"✅ Added {added} keys to {KEY_CATEGORIES[category]['name']}")
-        log_admin_action(msg.from_user.id, "BULK_ADD", {"category": category, "added": added})
+        bot.send_message(
+            msg.from_user.id, 
+            f"✅ Added: {added} keys\n❌ Errors/Skipped: {errors}\nCategory: {KEY_CATEGORIES[category]['name']}"
+        )
+        log_admin_action(msg.from_user.id, "BULK_ADD", {"category": category, "added": added, "errors": errors})
         
     except Exception as e:
         bot.send_message(msg.from_user.id, f"❌ Error: {str(e)}")
