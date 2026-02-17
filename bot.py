@@ -254,6 +254,48 @@ Use buttons below to navigate!"""
     bot.send_message(user_id, welcome, reply_markup=get_main_keyboard())
 
 # -----------------------
+# HELP COMMAND
+# -----------------------
+@bot.message_handler(commands=['help'])
+def help_command(msg):
+    user_id = msg.from_user.id
+    
+    text = "📚 **Help & Commands**\n\n"
+    text += "**User Commands:**\n"
+    text += "/start - Start the bot\n"
+    text += "/help - Show this help\n"
+    text += "/balance - Check your balance\n"
+    text += "/buy - Buy keys\n"
+    text += "/recharge - Recharge wallet\n"
+    text += "/coupon - Redeem coupon\n"
+    text += "/support - Contact support\n\n"
+    
+    if is_admin(user_id):
+        text += "**Admin Commands:**\n"
+        text += "/admin - Open admin panel\n"
+        text += "/stats - View bot statistics\n"
+        text += "/addkey - Add a new key\n"
+        text += "/removekey [keycode] - Remove a key\n"
+        text += "/keys - List all keys\n"
+        text += "/users - List users\n"
+        text += "/pending - View pending recharges\n"
+        text += "/approve [id] - Approve recharge\n"
+        text += "/broadcast - Send broadcast\n"
+        text += "/ban [user_id] - Ban a user\n"
+        text += "/unban [user_id] - Unban a user\n"
+        text += "/addbalance [user_id] [amount] - Add balance\n"
+        text += "/deduct [user_id] [amount] [reason] - Deduct balance\n"
+        text += "/createcoupon [code] [amount] [uses] - Create coupon\n"
+        text += "/deletecoupon [code] - Delete coupon\n"
+        text += "/coupons - List coupons\n"
+        text += "/sales - View sales report\n"
+        text += "/addcat [key|name|price|emoji|desc] - Add category\n"
+        text += "/editcat [key|field|value] - Edit category\n"
+        text += "/delcat [key] - Delete category"
+    
+    bot.reply_to(msg, text, parse_mode="Markdown")
+
+# -----------------------
 # MAIN MENU
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🔙 Main Menu")
@@ -264,6 +306,7 @@ def main_menu(msg):
 # BUY KEYS - Category Selection
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🛒 Buy Keys")
+@bot.message_handler(commands=['buy'])
 def buy_keys(msg):
     user_id = msg.from_user.id
     text = "🎮 **Select Category:**\n\n"
@@ -471,6 +514,7 @@ def cancel_view(call):
 # BALANCE
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💰 Balance")
+@bot.message_handler(commands=['balance'])
 def show_balance(msg):
     user_id = msg.from_user.id
     balance = get_balance(user_id)
@@ -487,6 +531,7 @@ def show_balance(msg):
 # RECHARGE
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💳 Recharge")
+@bot.message_handler(commands=['recharge'])
 def recharge(msg):
     user_id = msg.from_user.id
     bot.send_message(user_id, "💳 Enter amount (min ₹10):", reply_markup=get_back_keyboard())
@@ -524,6 +569,7 @@ UPI ID: `anurag99999@fam`
 # REDEEM COUPON
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🎁 Redeem Coupon")
+@bot.message_handler(commands=['coupon'])
 def redeem(msg):
     user_id = msg.from_user.id
     bot.send_message(user_id, "🎟 Enter coupon code:", reply_markup=get_back_keyboard())
@@ -564,10 +610,12 @@ def process_coupon(msg):
 # SUPPORT & ABOUT
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📞 Support")
+@bot.message_handler(commands=['support'])
 def support(msg):
     bot.send_message(msg.from_user.id, "📞 Contact: @UROGGY", reply_markup=get_main_keyboard())
 
 @bot.message_handler(func=lambda msg: msg.text == "ℹ️ About")
+@bot.message_handler(commands=['about'])
 def about(msg):
     total = keys_col.count_documents({"status": "available"})
     sold = keys_col.count_documents({"status": "sold"})
@@ -585,8 +633,10 @@ def about(msg):
 # ADMIN PANEL
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "👑 Admin Panel")
+@bot.message_handler(commands=['admin'])
 def admin_panel(msg):
     if not is_admin(msg.from_user.id):
+        bot.reply_to(msg, "❌ Unauthorized!")
         return
     
     total = keys_col.count_documents({})
@@ -602,15 +652,44 @@ def admin_panel(msg):
     text += f"• Sold: {sold}\n"
     text += f"• Users: {users}\n"
     text += f"• Pending: {pending}\n\n"
-    text += f"Use buttons below:"
+    text += f"Use buttons below or commands from /help"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown", reply_markup=get_admin_keyboard())
+
+# -----------------------
+# STATS COMMAND
+# -----------------------
+@bot.message_handler(commands=['stats'])
+def stats_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    total = keys_col.count_documents({})
+    available = keys_col.count_documents({"status": "available"})
+    sold = keys_col.count_documents({"status": "sold"})
+    users = users_col.count_documents({})
+    pending = recharges_col.count_documents({"status": "pending"})
+    
+    text = f"📊 **Bot Statistics**\n\n"
+    text += f"• Total Keys: {total}\n"
+    text += f"• Available: {available}\n"
+    text += f"• Sold: {sold}\n"
+    text += f"• Users: {users}\n"
+    text += f"• Pending Recharges: {pending}\n"
+    
+    bot.reply_to(msg, text, parse_mode="Markdown")
 
 # -----------------------
 # ADD KEY - YAHAN ADMIN DETAILS AUR KEY CODE DONO DALEGA
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['addkey'])
 def add_key_start(msg):
+    if isinstance(msg, telebot.types.Message) and msg.text.startswith('/addkey'):
+        # Handle command format
+        bot.reply_to(msg, "Please use the button to add key:\n👑 Admin Panel → ➕ Add Key")
+        return
+        
     markup = InlineKeyboardMarkup(row_width=2)
     for key, data in KEY_CATEGORIES.items():
         markup.add(InlineKeyboardButton(f"{data['emoji']} {data['name']}", callback_data=f"addcat_{key}"))
@@ -703,7 +782,26 @@ def handle_details(msg):
 # KEY LIST
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📋 Key List" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['keys'])
 def key_list(msg):
+    if isinstance(msg, telebot.types.Message) and msg.text.startswith('/keys'):
+        # Show detailed key list
+        text = "📋 **All Keys**\n\n"
+        all_keys = list(keys_col.find().sort("added_at", -1).limit(20))
+        
+        if not all_keys:
+            bot.reply_to(msg, "📭 No keys found!")
+            return
+        
+        for key in all_keys:
+            cat_name = KEY_CATEGORIES[key['category']]['name'][:10]
+            status_emoji = "✅" if key['status'] == "available" else "💰"
+            text += f"{status_emoji} {cat_name}: `{key['key'][:15]}...`\n"
+        
+        bot.reply_to(msg, text, parse_mode="Markdown")
+        return
+    
+    # Button se aaya hai to summary dikhao
     text = "📋 **Key Inventory**\n\n"
     
     for key, data in KEY_CATEGORIES.items():
@@ -712,6 +810,32 @@ def key_list(msg):
         text += f"{data['emoji']} {data['name']}: {avail} avail, {sold} sold\n"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
+
+# -----------------------
+# REMOVE KEY COMMAND
+# -----------------------
+@bot.message_handler(commands=['removekey'])
+def remove_key_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split()
+        if len(parts) != 2:
+            bot.reply_to(msg, "❌ Usage: /removekey [keycode]")
+            return
+        
+        key_code = parts[1]
+        result = keys_col.delete_one({"key": key_code})
+        
+        if result.deleted_count > 0:
+            bot.reply_to(msg, f"✅ Key `{key_code}` removed!")
+            log_admin_action(msg.from_user.id, "REMOVE_KEY", {"key": key_code})
+        else:
+            bot.reply_to(msg, f"❌ Key `{key_code}` not found!")
+            
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
 
 # -----------------------
 # REMOVE KEY - Sab keys show hongi
@@ -824,7 +948,7 @@ def remove_next(call):
     bot.answer_callback_query(call.id, "More keys coming in next update!", show_alert=True)
 
 # -----------------------
-# BULK ADD KEYS - Updated for key code + details
+# BULK ADD KEYS
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📦 Bulk Add Keys" and is_admin(msg.from_user.id))
 def bulk_add_start(msg):
@@ -1009,15 +1133,18 @@ def delete_category(msg):
 # USERS LIST
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "👥 Users List" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['users'])
 def users_list(msg):
     total = users_col.count_documents({})
-    recent = list(users_col.find().sort("joined_at", -1).limit(5))
+    recent = list(users_col.find().sort("joined_at", -1).limit(10))
     
-    text = f"👥 **Users: {total}**\n\n**Recent:**\n"
+    text = f"👥 **Users: {total}**\n\n**Recent Users:**\n"
     for user in recent:
         name = user.get('name', 'Unknown')[:15]
-        bal = get_balance(user['user_id'])
-        text += f"• {name} - {format_currency(bal)}\n"
+        uid = user['user_id']
+        bal = get_balance(uid)
+        joined = user['joined_at'].strftime('%d/%m')
+        text += f"• {name} - {format_currency(bal)} (ID: `{uid}`) [{joined}]\n"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
@@ -1025,8 +1152,9 @@ def users_list(msg):
 # PENDING RECHARGES
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💸 Pending Recharges" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['pending'])
 def pending_recharges(msg):
-    pending = list(recharges_col.find({"status": "pending"}).sort("created_at", -1).limit(5))
+    pending = list(recharges_col.find({"status": "pending"}).sort("created_at", -1).limit(10))
     
     if not pending:
         bot.send_message(msg.from_user.id, "✅ No pending recharges!")
@@ -1037,7 +1165,8 @@ def pending_recharges(msg):
         text += f"ID: `{p['_id']}`\n"
         text += f"User: {p['user_id']}\n"
         text += f"Amount: {format_currency(p['amount'])}\n"
-        text += f"UTR: {p.get('utr', 'N/A')}\n\n"
+        text += f"UTR: {p.get('utr', 'N/A')}\n"
+        text += f"Time: {p['created_at'].strftime('%H:%M %d/%m')}\n\n"
     
     text += "Approve: /approve REQUEST_ID"
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
@@ -1064,6 +1193,7 @@ def approve_recharge(msg):
             pass
         
         bot.reply_to(msg, f"✅ Approved for user {req['user_id']}")
+        log_admin_action(msg.from_user.id, "APPROVE_RECHARGE", {"user": req['user_id'], "amount": req['amount']})
         
     except Exception as e:
         bot.reply_to(msg, f"❌ Error: {str(e)}")
@@ -1072,8 +1202,13 @@ def approve_recharge(msg):
 # BROADCAST
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📢 Broadcast" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['broadcast'])
 def broadcast_start(msg):
-    bot.send_message(msg.from_user.id, "📢 Send message to broadcast:")
+    if isinstance(msg, telebot.types.Message) and msg.text.startswith('/broadcast'):
+        bot.reply_to(msg, "Please use the broadcast button:\n👑 Admin Panel → 📢 Broadcast")
+        return
+        
+    bot.send_message(msg.from_user.id, "📢 Send message to broadcast (text/photo):")
     user_states[msg.from_user.id] = "admin_broadcast"
 
 @bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_broadcast" and is_admin(msg.from_user.id),
@@ -1081,8 +1216,9 @@ def broadcast_start(msg):
 def process_broadcast(msg):
     users = list(users_col.find())
     sent = 0
+    failed = 0
     
-    bot.send_message(msg.from_user.id, "📡 Broadcasting...")
+    bot.send_message(msg.from_user.id, "📡 Broadcasting started...")
     
     for user in users:
         uid = user.get('user_id')
@@ -1097,14 +1233,90 @@ def process_broadcast(msg):
             sent += 1
             time.sleep(0.1)
         except:
-            pass
+            failed += 1
     
-    bot.send_message(msg.from_user.id, f"✅ Sent to {sent} users")
+    bot.send_message(msg.from_user.id, f"✅ Broadcast Complete\nSent: {sent}\nFailed: {failed}")
+    log_admin_action(msg.from_user.id, "BROADCAST", {"sent": sent, "failed": failed})
     user_states.pop(msg.from_user.id, None)
 
 # -----------------------
-# BAN/UNBAN
+# BAN/UNBAN COMMANDS
 # -----------------------
+@bot.message_handler(commands=['ban'])
+def ban_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split()
+        if len(parts) < 2:
+            bot.reply_to(msg, "❌ Usage: /ban [user_id]")
+            return
+        
+        target = int(parts[1])
+        
+        if target == ADMIN_ID:
+            bot.reply_to(msg, "❌ Cannot ban admin!")
+            return
+        
+        if not users_col.find_one({"user_id": target}):
+            bot.reply_to(msg, "❌ User not found!")
+            return
+        
+        if is_user_banned(target):
+            bot.reply_to(msg, "⚠️ User is already banned!")
+            return
+        
+        banned_users_col.insert_one({
+            "user_id": target,
+            "banned_by": msg.from_user.id,
+            "banned_at": datetime.utcnow(),
+            "status": "active"
+        })
+        
+        try:
+            bot.send_message(target, "🚫 You have been banned from using this bot!")
+        except:
+            pass
+        
+        bot.reply_to(msg, f"✅ User {target} banned!")
+        log_admin_action(msg.from_user.id, "BAN_USER", {"target": target})
+        
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['unban'])
+def unban_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split()
+        if len(parts) < 2:
+            bot.reply_to(msg, "❌ Usage: /unban [user_id]")
+            return
+        
+        target = int(parts[1])
+        
+        result = banned_users_col.update_one(
+            {"user_id": target, "status": "active"},
+            {"$set": {"status": "inactive", "unbanned_at": datetime.utcnow()}}
+        )
+        
+        if result.modified_count > 0:
+            try:
+                bot.send_message(target, "✅ You have been unbanned! You can now use the bot.")
+            except:
+                pass
+            
+            bot.reply_to(msg, f"✅ User {target} unbanned!")
+            log_admin_action(msg.from_user.id, "UNBAN_USER", {"target": target})
+        else:
+            bot.reply_to(msg, "❌ User not found or not banned!")
+            
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
+
 @bot.message_handler(func=lambda msg: msg.text == "🚫 Ban User" and is_admin(msg.from_user.id))
 def ban_start(msg):
     bot.send_message(msg.from_user.id, "🚫 Enter user ID to ban:")
@@ -1116,13 +1328,23 @@ def process_ban(msg):
         target = int(msg.text.strip())
         if target == ADMIN_ID:
             bot.send_message(msg.from_user.id, "❌ Cannot ban admin!")
+        elif not users_col.find_one({"user_id": target}):
+            bot.send_message(msg.from_user.id, "❌ User not found!")
+        elif is_user_banned(target):
+            bot.send_message(msg.from_user.id, "⚠️ User is already banned!")
         else:
-            banned_users_col.insert_one({"user_id": target, "status": "active", "banned_at": datetime.utcnow()})
+            banned_users_col.insert_one({
+                "user_id": target,
+                "banned_by": msg.from_user.id,
+                "banned_at": datetime.utcnow(),
+                "status": "active"
+            })
             bot.send_message(msg.from_user.id, f"✅ User {target} banned!")
             try:
                 bot.send_message(target, "🚫 You have been banned!")
             except:
                 pass
+            log_admin_action(msg.from_user.id, "BAN_USER", {"target": target})
     except:
         bot.send_message(msg.from_user.id, "❌ Invalid ID!")
     
@@ -1139,7 +1361,7 @@ def process_unban(msg):
         target = int(msg.text.strip())
         result = banned_users_col.update_one(
             {"user_id": target, "status": "active"},
-            {"$set": {"status": "inactive"}}
+            {"$set": {"status": "inactive", "unbanned_at": datetime.utcnow()}}
         )
         
         if result.modified_count > 0:
@@ -1148,6 +1370,7 @@ def process_unban(msg):
                 bot.send_message(target, "✅ You have been unbanned!")
             except:
                 pass
+            log_admin_action(msg.from_user.id, "UNBAN_USER", {"target": target})
         else:
             bot.send_message(msg.from_user.id, "❌ User not banned!")
     except:
@@ -1156,8 +1379,112 @@ def process_unban(msg):
     user_states.pop(msg.from_user.id, None)
 
 # -----------------------
-# DEDUCT/ADD BALANCE
+# ADD/DEDUCT BALANCE COMMANDS
 # -----------------------
+@bot.message_handler(commands=['addbalance'])
+def add_balance_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split()
+        if len(parts) < 3:
+            bot.reply_to(msg, "❌ Usage: /addbalance [user_id] [amount] [reason]")
+            return
+        
+        target = int(parts[1])
+        amount = float(parts[2])
+        reason = " ".join(parts[3:]) if len(parts) > 3 else "Admin added"
+        
+        if not users_col.find_one({"user_id": target}):
+            bot.reply_to(msg, "❌ User not found!")
+            return
+        
+        if amount <= 0:
+            bot.reply_to(msg, "❌ Amount must be positive!")
+            return
+        
+        old_balance = get_balance(target)
+        add_balance(target, amount)
+        new_balance = get_balance(target)
+        
+        transactions_col.insert_one({
+            "user_id": target,
+            "amount": amount,
+            "type": "admin_add",
+            "reason": reason,
+            "admin_id": msg.from_user.id,
+            "old_balance": old_balance,
+            "new_balance": new_balance,
+            "timestamp": datetime.utcnow()
+        })
+        
+        try:
+            bot.send_message(target, f"✅ {format_currency(amount)} added to your wallet!\nReason: {reason}\nNew Balance: {format_currency(new_balance)}")
+        except:
+            pass
+        
+        bot.reply_to(msg, f"✅ Added {format_currency(amount)} to user {target}")
+        log_admin_action(msg.from_user.id, "ADD_BALANCE", {"target": target, "amount": amount, "reason": reason})
+        
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['deduct'])
+def deduct_balance_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split()
+        if len(parts) < 3:
+            bot.reply_to(msg, "❌ Usage: /deduct [user_id] [amount] [reason]")
+            return
+        
+        target = int(parts[1])
+        amount = float(parts[2])
+        reason = " ".join(parts[3:]) if len(parts) > 3 else "Admin deducted"
+        
+        if not users_col.find_one({"user_id": target}):
+            bot.reply_to(msg, "❌ User not found!")
+            return
+        
+        current = get_balance(target)
+        
+        if amount <= 0:
+            bot.reply_to(msg, "❌ Amount must be positive!")
+            return
+        
+        if amount > current:
+            bot.reply_to(msg, f"❌ Insufficient balance! User has {format_currency(current)}")
+            return
+        
+        old_balance = current
+        deduct_balance(target, amount)
+        new_balance = get_balance(target)
+        
+        transactions_col.insert_one({
+            "user_id": target,
+            "amount": amount,
+            "type": "admin_deduct",
+            "reason": reason,
+            "admin_id": msg.from_user.id,
+            "old_balance": old_balance,
+            "new_balance": new_balance,
+            "timestamp": datetime.utcnow()
+        })
+        
+        try:
+            bot.send_message(target, f"⚠️ {format_currency(amount)} deducted from your wallet!\nReason: {reason}\nNew Balance: {format_currency(new_balance)}")
+        except:
+            pass
+        
+        bot.reply_to(msg, f"✅ Deducted {format_currency(amount)} from user {target}")
+        log_admin_action(msg.from_user.id, "DEDUCT_BALANCE", {"target": target, "amount": amount, "reason": reason})
+        
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
+
 @bot.message_handler(func=lambda msg: msg.text == "💳 Deduct Balance" and is_admin(msg.from_user.id))
 def deduct_start(msg):
     bot.send_message(msg.from_user.id, "💳 Enter user ID:")
@@ -1209,22 +1536,37 @@ def process_deduct_flow(msg):
         if state["type"] == "deduct":
             current = get_balance(state["target"])
             if state["amount"] > current:
-                bot.send_message(user_id, f"❌ Insufficient balance!")
+                bot.send_message(user_id, f"❌ Insufficient balance! User has {format_currency(current)}")
                 admin_deduct_state.pop(user_id, None)
                 return
             
+            old_balance = current
             deduct_balance(state["target"], state["amount"])
+            new_balance = get_balance(state["target"])
             action = "DEDUCTED"
         else:
+            old_balance = get_balance(state["target"])
             add_balance(state["target"], state["amount"])
+            new_balance = get_balance(state["target"])
             action = "ADDED"
         
-        new_balance = get_balance(state["target"])
+        transactions_col.insert_one({
+            "user_id": state["target"],
+            "amount": state["amount"],
+            "type": f"admin_{action.lower()}",
+            "reason": reason,
+            "admin_id": user_id,
+            "old_balance": old_balance,
+            "new_balance": new_balance,
+            "timestamp": datetime.utcnow()
+        })
         
         bot.send_message(
             user_id,
             f"✅ {action} {format_currency(state['amount'])}\n"
             f"User: {state['target']}\n"
+            f"Reason: {reason}\n"
+            f"Old Balance: {format_currency(old_balance)}\n"
             f"New Balance: {format_currency(new_balance)}"
         )
         
@@ -1251,11 +1593,14 @@ def process_deduct_flow(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🎟 Coupons" and is_admin(msg.from_user.id))
 def coupon_menu(msg):
-    text = "🎟 **Coupon Commands:**\n\n"
-    text += "/createcoupon CODE AMOUNT MAXUSES\n"
-    text += "/deletecoupon CODE\n"
-    text += "/couponlist\n\n"
-    text += "Example: /createcoupon DIWALI50 50 100"
+    text = "🎟 **Coupon Management**\n\n"
+    text += "**Commands:**\n"
+    text += "• /createcoupon [code] [amount] [max_uses]\n"
+    text += "• /deletecoupon [code]\n"
+    text += "• /coupons\n\n"
+    text += "**Examples:**\n"
+    text += "• `/createcoupon DIWALI50 50 100`\n"
+    text += "• `/deletecoupon DIWALI50`"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
@@ -1267,14 +1612,19 @@ def create_coupon(msg):
     try:
         parts = msg.text.split()
         if len(parts) != 4:
-            raise ValueError("Invalid format")
+            bot.reply_to(msg, "❌ Usage: /createcoupon [code] [amount] [max_uses]")
+            return
         
         code = parts[1].upper()
         amount = float(parts[2])
         max_uses = int(parts[3])
         
+        if amount <= 0 or max_uses <= 0:
+            bot.reply_to(msg, "❌ Amount and max uses must be positive!")
+            return
+        
         if coupons_col.find_one({"code": code}):
-            bot.reply_to(msg, "❌ Coupon exists!")
+            bot.reply_to(msg, f"❌ Coupon {code} already exists!")
             return
         
         coupons_col.insert_one({
@@ -1282,11 +1632,21 @@ def create_coupon(msg):
             "amount": amount,
             "max_uses": max_uses,
             "used_by": [],
+            "used_count": 0,
             "status": "active",
+            "created_by": msg.from_user.id,
             "created_at": datetime.utcnow()
         })
         
-        bot.reply_to(msg, f"✅ Coupon {code} created!")
+        bot.reply_to(
+            msg,
+            f"✅ **Coupon Created!**\n\n"
+            f"Code: `{code}`\n"
+            f"Amount: {format_currency(amount)}\n"
+            f"Max Uses: {max_uses}",
+            parse_mode="Markdown"
+        )
+        log_admin_action(msg.from_user.id, "CREATE_COUPON", {"code": code, "amount": amount, "max_uses": max_uses})
         
     except Exception as e:
         bot.reply_to(msg, f"❌ Error: {str(e)}")
@@ -1297,27 +1657,41 @@ def delete_coupon(msg):
         return
     
     try:
-        code = msg.text.split()[1].upper()
-        coupons_col.delete_one({"code": code})
-        bot.reply_to(msg, f"✅ Coupon deleted!")
-    except:
-        bot.reply_to(msg, "❌ Error!")
+        parts = msg.text.split()
+        if len(parts) != 2:
+            bot.reply_to(msg, "❌ Usage: /deletecoupon [code]")
+            return
+        
+        code = parts[1].upper()
+        result = coupons_col.delete_one({"code": code})
+        
+        if result.deleted_count > 0:
+            bot.reply_to(msg, f"✅ Coupon {code} deleted!")
+            log_admin_action(msg.from_user.id, "DELETE_COUPON", {"code": code})
+        else:
+            bot.reply_to(msg, f"❌ Coupon {code} not found!")
+            
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
 
-@bot.message_handler(commands=['couponlist'])
+@bot.message_handler(commands=['coupons'])
 def coupon_list(msg):
     if not is_admin(msg.from_user.id):
         return
     
-    coupons = list(coupons_col.find({"status": "active"}))
+    coupons = list(coupons_col.find({"status": "active"}).sort("created_at", -1))
     
     if not coupons:
-        bot.reply_to(msg, "📭 No coupons!")
+        bot.reply_to(msg, "📭 No active coupons!")
         return
     
     text = "🎟 **Active Coupons**\n\n"
     for c in coupons:
-        used = len(c.get('used_by', []))
-        text += f"`{c['code']}` - {format_currency(c['amount'])} ({used}/{c['max_uses']})\n"
+        used = c.get('used_count', len(c.get('used_by', [])))
+        text += f"• `{c['code']}`\n"
+        text += f"  Amount: {format_currency(c['amount'])}\n"
+        text += f"  Used: {used}/{c['max_uses']}\n"
+        text += f"  Created: {c['created_at'].strftime('%d/%m')}\n\n"
     
     bot.send_message(msg.chat.id, text, parse_mode="Markdown")
 
@@ -1325,6 +1699,7 @@ def coupon_list(msg):
 # SALES REPORT
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📈 Sales Report" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['sales'])
 def sales_report(msg):
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_sales = list(keys_col.find({"status": "sold", "sold_at": {"$gte": today}}))
@@ -1335,10 +1710,18 @@ def sales_report(msg):
     week_ago = today - timedelta(days=7)
     week_count = keys_col.count_documents({"status": "sold", "sold_at": {"$gte": week_ago}})
     
+    month_ago = today - timedelta(days=30)
+    month_count = keys_col.count_documents({"status": "sold", "sold_at": {"$gte": month_ago}})
+    
+    total_sold = keys_col.count_documents({"status": "sold"})
+    total_revenue = sum(k.get('price', 0) for k in keys_col.find({"status": "sold"}))
+    
     text = f"📈 **Sales Report**\n\n"
-    text += f"Today: {today_count} keys | {format_currency(today_revenue)}\n"
-    text += f"This Week: {week_count} keys\n\n"
-    text += f"**Category Breakdown:**\n"
+    text += f"**Today:** {today_count} keys | {format_currency(today_revenue)}\n"
+    text += f"**This Week:** {week_count} keys\n"
+    text += f"**This Month:** {month_count} keys\n\n"
+    text += f"**All Time:** {total_sold} keys | {format_currency(total_revenue)}\n\n"
+    text += f"**Category Breakdown (Today):**\n"
     
     for key, data in KEY_CATEGORIES.items():
         cat_sales = [k for k in today_sales if k['category'] == key]
@@ -1422,13 +1805,17 @@ if __name__ == "__main__":
         keys_col.create_index("key", unique=True)
         keys_col.create_index("status")
         coupons_col.create_index("code", unique=True)
-    except:
-        pass
+        users_col.create_index("user_id", unique=True)
+        wallets_col.create_index("user_id", unique=True)
+        logger.info("✅ Database indexes created")
+    except Exception as e:
+        logger.error(f"❌ Index creation failed: {e}")
     
     # Start bot
     while True:
         try:
-            bot.infinity_polling(timeout=60)
+            logger.info("🤖 Bot is polling...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Bot error: {e}")
             time.sleep(5)
