@@ -1,4 +1,5 @@
 import logging
+import logging
 import threading
 import time
 from datetime import datetime, timedelta
@@ -323,7 +324,7 @@ def show_keys(msg):
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
 # -----------------------
-# VIEW KEY DETAILS (Before Purchase)
+# VIEW KEY DETAILS (Before Purchase) - Admin ki details yahan show hogi
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_"))
 def view_key_details(call):
@@ -339,11 +340,12 @@ def view_key_details(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # Build details message
+        # 🎯 Admin ne jo details dali hain, wahi show karo
         text = f"{cat_data['emoji']} **{cat_data['name']}**\n"
         text += f"💰 **Price:** {format_currency(key['price'])}\n\n"
         
         if key.get('details'):
+            # Admin ki exact details - bilkul waisi hi
             text += f"📝 **Key Details:**\n```\n{key['details']}\n```\n"
         else:
             text += "ℹ️ No additional details available.\n\n"
@@ -370,7 +372,7 @@ def view_key_details(call):
         bot.answer_callback_query(call.id, "❌ Error loading details!", show_alert=True)
 
 # -----------------------
-# PROCESS PURCHASE - KEY SHOW HOGA YAHAN
+# PROCESS PURCHASE - Key yahan show hogi
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def process_purchase(call):
@@ -430,13 +432,13 @@ def process_purchase(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # 🎯 AFTER PURCHASE - KEY SHOW HOGA
+        # 🎯 AFTER PURCHASE - Key show karo
         text = f"✅ **Purchase Successful!**\n\n"
         text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
         text += f"💰 Paid: {format_currency(price)}\n"
         text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
         
-        # KEY SHOW KARO
+        # Key show karo
         if key.get('details'):
             text += f"🔑 **Your Key Details:**\n```\n{key['details']}\n```\n"
         else:
@@ -605,7 +607,7 @@ def admin_panel(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown", reply_markup=get_admin_keyboard())
 
 # -----------------------
-# ADD KEY (Single with Details)
+# ADD KEY (Single with Details) - Admin yahan details dalega
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
 def add_key_start(msg):
@@ -627,7 +629,10 @@ def add_key_category(call):
         f"`Email: example@gmail.com`\n"
         f"`Password: bgmi123`\n"
         f"`Server: Asia`\n\n"
-        f"Or send any text you want users to see.",
+        f"**YEH DETAILS DONO JAGAH DIKHENGE:**\n"
+        f"1. **Kharidne se pehle** - Preview mein\n"
+        f"2. **Kharidne ke baad** - Final key mein\n\n"
+        f"Jo bhi details aap daloge, wahi user ko milega!",
         call.message.chat.id,
         call.message.message_id,
         parse_mode="Markdown"
@@ -651,7 +656,7 @@ def handle_add_key(msg):
         "key": key_id,
         "category": category,
         "price": KEY_CATEGORIES[category]['price'],
-        "details": details,
+        "details": details,  # Yeh details dono jagah use hongi
         "status": "available",
         "added_by": user_id,
         "added_at": datetime.utcnow()
@@ -665,7 +670,7 @@ def handle_add_key(msg):
         f"Category: {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
         f"Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
         f"Available in category: {count}\n\n"
-        f"📝 **Details saved:**\n```\n{details}\n```"
+        f"📝 **Details saved (yeh dikhenge user ko):**\n```\n{details}\n```"
     )
     
     log_admin_action(user_id, "ADD_KEY", {"category": category})
@@ -686,7 +691,7 @@ def key_list(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 # -----------------------
-# REMOVE KEY - SAB KEYS SHOW HONGI
+# REMOVE KEY - Sab keys show hongi
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Remove Key" and is_admin(msg.from_user.id))
 def remove_key_start(msg):
