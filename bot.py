@@ -47,6 +47,7 @@ upi_payment_states = {}
 admin_deduct_state = {}
 admin_add_key_state = {}
 edit_category_state = {}
+admin_remove_state = {}
 
 # Default Categories
 DEFAULT_CATEGORIES = {
@@ -338,15 +339,13 @@ def view_key_details(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # Build details message - Show whatever admin added
+        # Build details message
         text = f"{cat_data['emoji']} **{cat_data['name']}**\n"
         text += f"💰 **Price:** {format_currency(key['price'])}\n\n"
         
         if key.get('details'):
-            # Show exactly what admin added - no key code
             text += f"📝 **Key Details:**\n```\n{key['details']}\n```\n"
         else:
-            # If no details, show simple message
             text += "ℹ️ No additional details available.\n\n"
         
         text += "🛒 **Do you want to purchase this key?**"
@@ -371,7 +370,7 @@ def view_key_details(call):
         bot.answer_callback_query(call.id, "❌ Error loading details!", show_alert=True)
 
 # -----------------------
-# PROCESS PURCHASE
+# PROCESS PURCHASE - KEY SHOW HOGA YAHAN
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def process_purchase(call):
@@ -431,22 +430,19 @@ def process_purchase(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # AFTER PURCHASE - Show ONLY the details (no key code)
+        # 🎯 AFTER PURCHASE - KEY SHOW HOGA
+        text = f"✅ **Purchase Successful!**\n\n"
+        text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
+        text += f"💰 Paid: {format_currency(price)}\n"
+        text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
+        
+        # KEY SHOW KARO
         if key.get('details'):
-            # Show exactly what admin added
-            text = f"✅ **Purchase Successful!**\n\n"
-            text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
-            text += f"💰 Paid: {format_currency(price)}\n"
-            text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
-            text += f"📝 **Your Key Details:**\n```\n{key['details']}\n```\n"
-            text += "✨ Save these details and use in game!"
+            text += f"🔑 **Your Key Details:**\n```\n{key['details']}\n```\n"
         else:
-            # Fallback if no details
-            text = f"✅ **Purchase Successful!**\n\n"
-            text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
-            text += f"💰 Paid: {format_currency(price)}\n"
-            text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
-            text += f"ℹ️ Contact admin if you don't receive key."
+            text += f"🔑 **Your Key:**\n`{key['key']}`\n"
+        
+        text += "\n✨ Save these details and use in game!"
         
         bot.edit_message_text(
             text,
@@ -631,8 +627,7 @@ def add_key_category(call):
         f"`Email: example@gmail.com`\n"
         f"`Password: bgmi123`\n"
         f"`Server: Asia`\n\n"
-        f"Or send any text you want users to see after purchase.\n"
-        f"**The key code will NOT be shown - only these details!**",
+        f"Or send any text you want users to see.",
         call.message.chat.id,
         call.message.message_id,
         parse_mode="Markdown"
@@ -649,7 +644,7 @@ def handle_add_key(msg):
         bot.send_message(user_id, "❌ Details cannot be empty!")
         return
     
-    # Generate a unique key ID for database (hidden from users)
+    # Generate a unique key ID for database
     key_id = f"KEY{int(time.time())}{user_id}"
     
     keys_col.insert_one({
@@ -670,8 +665,7 @@ def handle_add_key(msg):
         f"Category: {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
         f"Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
         f"Available in category: {count}\n\n"
-        f"📝 **Details saved:**\n```\n{details}\n```\n\n"
-        f"Users will see these exact details after purchase."
+        f"📝 **Details saved:**\n```\n{details}\n```"
     )
     
     log_admin_action(user_id, "ADD_KEY", {"category": category})
@@ -692,25 +686,114 @@ def key_list(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 # -----------------------
-# REMOVE KEY
+# REMOVE KEY - SAB KEYS SHOW HONGI
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "🗑 Remove Key" and is_admin(msg.from_user.id))
 def remove_key_start(msg):
-    bot.send_message(msg.from_user.id, "🗑 Enter key ID to remove:")
-    user_states[msg.from_user.id] = "admin_remove"
+    user_id = msg.from_user.id
+    
+    # Sab categories se keys collect karo
+    all_keys = []
+    for cat_key, cat_data in KEY_CATEGORIES.items():
+        keys = list(keys_col.find({"category": cat_key, "status": "available"}).limit(5))
+        for k in keys:
+            all_keys.append(k)
+    
+    if not all_keys:
+        bot.send_message(user_id, "📭 No keys available to remove!")
+        return
+    
+    text = "🗑 **Select Key to Remove**\n\n"
+    text += f"Total Available: {len(all_keys)} keys\n\n"
+    
+    markup = InlineKeyboardMarkup(row_width=1)
+    for i, key in enumerate(all_keys[:10], 1):  # Max 10 keys show karo
+        cat_name = KEY_CATEGORIES[key['category']]['name'][:10]
+        preview = key['details'][:30] + "..." if key.get('details') else "No details"
+        btn_text = f"{i}. {cat_name} - {preview}"
+        markup.add(InlineKeyboardButton(btn_text, callback_data=f"rem_{key['_id']}"))
+    
+    if len(all_keys) > 10:
+        markup.add(InlineKeyboardButton("📋 Next Page (Coming Soon)", callback_data="remove_next"))
+    
+    bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_remove" and is_admin(msg.from_user.id))
-def process_remove(msg):
-    key_id = msg.text.strip()
-    result = keys_col.delete_one({"key": key_id})
+@bot.callback_query_handler(func=lambda call: call.data.startswith("rem_"))
+def confirm_remove(call):
+    key_id = call.data.replace("rem_", "")
     
-    if result.deleted_count > 0:
-        bot.send_message(msg.from_user.id, f"✅ Key removed!")
-        log_admin_action(msg.from_user.id, "REMOVE_KEY", {})
-    else:
-        bot.send_message(msg.from_user.id, f"❌ Key not found!")
+    try:
+        key = keys_col.find_one({"_id": ObjectId(key_id)})
+        if not key:
+            bot.answer_callback_query(call.id, "❌ Key not found!", show_alert=True)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            return
+        
+        cat_name = KEY_CATEGORIES[key['category']]['name']
+        
+        text = f"🗑 **Confirm Removal**\n\n"
+        text += f"Category: {cat_name}\n"
+        text += f"Key ID: `{key['key']}`\n\n"
+        
+        if key.get('details'):
+            text += f"📝 **Details:**\n```\n{key['details']}\n```\n\n"
+        
+        text += "Are you sure you want to remove this key?"
+        
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton("✅ Yes, Remove", callback_data=f"remove_yes_{key_id}"),
+            InlineKeyboardButton("❌ No, Cancel", callback_data="remove_no")
+        )
+        
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, "❌ Error!", show_alert=True)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("remove_yes_"))
+def process_remove(call):
+    key_id = call.data.replace("remove_yes_", "")
     
-    user_states.pop(msg.from_user.id, None)
+    try:
+        key = keys_col.find_one({"_id": ObjectId(key_id)})
+        if not key:
+            bot.answer_callback_query(call.id, "❌ Key not found!", show_alert=True)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            return
+        
+        keys_col.delete_one({"_id": ObjectId(key_id)})
+        
+        bot.edit_message_text(
+            f"✅ **Key Removed Successfully!**\n\n"
+            f"Category: {KEY_CATEGORIES[key['category']]['name']}\n"
+            f"Key ID: `{key['key']}`",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode="Markdown"
+        )
+        
+        log_admin_action(call.from_user.id, "REMOVE_KEY", {"category": key['category']})
+        bot.answer_callback_query(call.id, "✅ Key removed!")
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, "❌ Error!", show_alert=True)
+
+@bot.callback_query_handler(func=lambda call: call.data == "remove_no")
+def cancel_remove(call):
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id, "Cancelled")
+
+@bot.callback_query_handler(func=lambda call: call.data == "remove_next")
+def remove_next(call):
+    bot.answer_callback_query(call.id, "More keys coming in next update!", show_alert=True)
 
 # -----------------------
 # BULK ADD KEYS
