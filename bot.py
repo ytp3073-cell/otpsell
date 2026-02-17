@@ -141,7 +141,11 @@ def get_admin_keyboard():
     )
     keyboard.add(
         KeyboardButton("💸 Pending Recharges"),
-        KeyboardButton("📢 Broadcast")
+        KeyboardButton("✅ Approve Recharge")
+    )
+    keyboard.add(
+        KeyboardButton("📢 Broadcast"),
+        KeyboardButton("📈 Sales Report")
     )
     keyboard.add(
         KeyboardButton("🚫 Ban User"),
@@ -153,9 +157,8 @@ def get_admin_keyboard():
     )
     keyboard.add(
         KeyboardButton("🎟 Coupons"),
-        KeyboardButton("📈 Sales Report")
+        KeyboardButton("🔙 Main Menu")
     )
-    keyboard.add(KeyboardButton("🔙 Main Menu"))
     return keyboard
 
 def get_buy_keyboard():
@@ -820,7 +823,7 @@ def handle_new_name(msg):
     edit_loader_state.pop(user_id, None)
 
 # -----------------------
-# EDIT LOADER PRICE
+# EDIT LOADER PRICE - FIXED
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💰 Edit Loader Price" and is_admin(msg.from_user.id))
 def edit_loader_price_start(msg):
@@ -1437,50 +1440,267 @@ def users_list(msg):
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
 
 # -----------------------
-# PENDING RECHARGES
+# PENDING RECHARGES - FIXED WITH BUTTONS
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "💸 Pending Recharges" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['pending'])
 def pending_recharges(msg):
-    pending = list(recharges_col.find({"status": "pending"}).sort("created_at", -1).limit(10))
+    if not is_admin(msg.from_user.id):
+        return
+    
+    pending = list(recharges_col.find({"status": "pending"}).sort("created_at", -1).limit(5))
     
     if not pending:
         bot.send_message(msg.from_user.id, "✅ No pending recharges!")
         return
     
-    text = "💸 **Pending Recharges**\n\n"
-    for p in pending:
-        text += f"ID: `{p['_id']}`\n"
-        text += f"User: {p['user_id']}\n"
-        text += f"Amount: {format_currency(p['amount'])}\n"
-        text += f"UTR: {p.get('utr', 'N/A')}\n"
-        text += f"Time: {p['created_at'].strftime('%H:%M %d/%m')}\n\n"
-    
-    text += "Approve: /approve REQUEST_ID"
-    bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
+    for req in pending:
+        # Create inline keyboard with approve/reject buttons
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton("✅ Approve", callback_data=f"app_req_{req['_id']}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"rej_req_{req['_id']}")
+        )
+        
+        # Get user info
+        user = users_col.find_one({"user_id": req['user_id']}) or {}
+        user_name = user.get('name', 'Unknown')
+        
+        text = f"💸 **Recharge Request**\n\n"
+        text += f"ID: `{req['_id']}`\n"
+        text += f"User: {user_name} (ID: `{req['user_id']}`)\n"
+        text += f"Amount: {format_currency(req['amount'])}\n"
+        text += f"UTR: {req.get('utr', 'N/A')}\n"
+        text += f"Time: {req['created_at'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+        
+        # Send photo if exists
+        if req.get('screenshot'):
+            bot.send_photo(
+                msg.from_user.id,
+                req['screenshot'],
+                caption=text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(
+                msg.from_user.id,
+                text,
+                reply_markup=markup,
+                parse_mode="Markdown"
+            )
 
+# -----------------------
+# APPROVE RECHARGE BUTTON HANDLER
+# -----------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("app_req_"))
+def approve_recharge_callback(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ Unauthorized!", show_alert=True)
+        return
+    
+    try:
+        req_id = ObjectId(call.data.replace("app_req_", ""))
+        req = recharges_col.find_one({"_id": req_id, "status": "pending"})
+        
+        if not req:
+            bot.answer_callback_query(call.id, "❌ Request not found or already processed!", show_alert=True)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            return
+        
+        # Add balance to user
+        add_balance(req['user_id'], req['amount'])
+        
+        # Update request status
+        recharges_col.update_one(
+            {"_id": req_id},
+            {"$set": {
+                "status": "approved",
+                "approved_by": call.from_user.id,
+                "approved_at": datetime.utcnow()
+            }}
+        )
+        
+        # Notify user
+        try:
+            bot.send_message(
+                req['user_id'],
+                f"✅ **Recharge Approved!**\n\n"
+                f"💰 Amount: {format_currency(req['amount'])}\n"
+                f"💳 New Balance: {format_currency(get_balance(req['user_id']))}\n\n"
+                f"Thank you for your payment!"
+            )
+        except:
+            pass
+        
+        # Update message
+        bot.edit_message_caption(
+            caption=call.message.caption + "\n\n✅ **APPROVED**",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        
+        bot.answer_callback_query(call.id, "✅ Recharge approved!")
+        log_admin_action(call.from_user.id, "APPROVE_RECHARGE", {"user": req['user_id'], "amount": req['amount']})
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)}", show_alert=True)
+
+# -----------------------
+# REJECT RECHARGE BUTTON HANDLER
+# -----------------------
+@bot.callback_query_handler(func=lambda call: call.data.startswith("rej_req_"))
+def reject_recharge_callback(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "❌ Unauthorized!", show_alert=True)
+        return
+    
+    try:
+        req_id = ObjectId(call.data.replace("rej_req_", ""))
+        req = recharges_col.find_one({"_id": req_id, "status": "pending"})
+        
+        if not req:
+            bot.answer_callback_query(call.id, "❌ Request not found or already processed!", show_alert=True)
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            return
+        
+        # Update request status
+        recharges_col.update_one(
+            {"_id": req_id},
+            {"$set": {
+                "status": "rejected",
+                "rejected_by": call.from_user.id,
+                "rejected_at": datetime.utcnow()
+            }}
+        )
+        
+        # Notify user
+        try:
+            bot.send_message(
+                req['user_id'],
+                f"❌ **Recharge Rejected**\n\n"
+                f"💰 Amount: {format_currency(req['amount'])}\n"
+                f"UTR: {req.get('utr', 'N/A')}\n\n"
+                f"Your payment could not be verified. Please contact support if you think this is a mistake."
+            )
+        except:
+            pass
+        
+        # Update message
+        bot.edit_message_caption(
+            caption=call.message.caption + "\n\n❌ **REJECTED**",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id
+        )
+        
+        bot.answer_callback_query(call.id, "❌ Recharge rejected!")
+        log_admin_action(call.from_user.id, "REJECT_RECHARGE", {"user": req['user_id'], "amount": req['amount']})
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)}", show_alert=True)
+
+# -----------------------
+# APPROVE RECHARGE BUTTON (for manual approval)
+# -----------------------
+@bot.message_handler(func=lambda msg: msg.text == "✅ Approve Recharge" and is_admin(msg.from_user.id))
+def approve_recharge_prompt(msg):
+    bot.send_message(
+        msg.from_user.id,
+        "📝 Send the recharge request ID to approve:\n"
+        "Example: `65f8a1b2c3d4e5f6a7b8c9d0`\n\n"
+        "You can get request ID from Pending Recharges."
+    )
+    user_states[msg.from_user.id] = "admin_approve_id"
+
+@bot.message_handler(func=lambda msg: user_states.get(msg.from_user.id) == "admin_approve_id" and is_admin(msg.from_user.id))
+def process_approve_id(msg):
+    try:
+        req_id = ObjectId(msg.text.strip())
+        req = recharges_col.find_one({"_id": req_id, "status": "pending"})
+        
+        if not req:
+            bot.send_message(msg.from_user.id, "❌ Request not found or already processed!")
+            user_states.pop(msg.from_user.id, None)
+            return
+        
+        # Add balance
+        add_balance(req['user_id'], req['amount'])
+        
+        # Update request
+        recharges_col.update_one(
+            {"_id": req_id},
+            {"$set": {
+                "status": "approved",
+                "approved_by": msg.from_user.id,
+                "approved_at": datetime.utcnow()
+            }}
+        )
+        
+        # Notify user
+        try:
+            bot.send_message(
+                req['user_id'],
+                f"✅ **Recharge Approved!**\n\n"
+                f"💰 Amount: {format_currency(req['amount'])}\n"
+                f"💳 New Balance: {format_currency(get_balance(req['user_id']))}"
+            )
+        except:
+            pass
+        
+        bot.send_message(msg.from_user.id, f"✅ Recharge approved for user {req['user_id']}!")
+        log_admin_action(msg.from_user.id, "APPROVE_RECHARGE", {"user": req['user_id'], "amount": req['amount']})
+        
+    except Exception as e:
+        bot.send_message(msg.from_user.id, f"❌ Error: {str(e)}")
+    
+    user_states.pop(msg.from_user.id, None)
+
+# -----------------------
+# APPROVE COMMAND
+# -----------------------
 @bot.message_handler(commands=['approve'])
-def approve_recharge(msg):
+def approve_command(msg):
     if not is_admin(msg.from_user.id):
         return
     
     try:
-        req_id = ObjectId(msg.text.split()[1])
+        parts = msg.text.split()
+        if len(parts) != 2:
+            bot.reply_to(msg, "❌ Usage: /approve [request_id]")
+            return
+        
+        req_id = ObjectId(parts[1])
         req = recharges_col.find_one({"_id": req_id, "status": "pending"})
         
         if not req:
-            bot.reply_to(msg, "❌ Request not found!")
+            bot.reply_to(msg, "❌ Request not found or already processed!")
             return
         
+        # Add balance
         add_balance(req['user_id'], req['amount'])
-        recharges_col.update_one({"_id": req_id}, {"$set": {"status": "approved"}})
         
+        # Update request
+        recharges_col.update_one(
+            {"_id": req_id},
+            {"$set": {
+                "status": "approved",
+                "approved_by": msg.from_user.id,
+                "approved_at": datetime.utcnow()
+            }}
+        )
+        
+        # Notify user
         try:
-            bot.send_message(req['user_id'], f"✅ Recharge of {format_currency(req['amount'])} approved!")
+            bot.send_message(
+                req['user_id'],
+                f"✅ **Recharge Approved!**\n\n"
+                f"💰 Amount: {format_currency(req['amount'])}\n"
+                f"💳 New Balance: {format_currency(get_balance(req['user_id']))}"
+            )
         except:
             pass
         
-        bot.reply_to(msg, f"✅ Approved for user {req['user_id']}")
+        bot.reply_to(msg, f"✅ Recharge approved for user {req['user_id']}!")
         log_admin_action(msg.from_user.id, "APPROVE_RECHARGE", {"user": req['user_id'], "amount": req['amount']})
         
     except Exception as e:
@@ -1506,7 +1726,7 @@ def process_broadcast(msg):
     sent = 0
     failed = 0
     
-    bot.send_message(msg.from_user.id, "📡 Broadcasting started...")
+    status_msg = bot.send_message(msg.from_user.id, "📡 Broadcasting started...")
     
     for user in users:
         uid = user.get('user_id')
@@ -1519,11 +1739,17 @@ def process_broadcast(msg):
             elif msg.content_type == 'photo':
                 bot.send_photo(uid, msg.photo[-1].file_id, caption=f"📢 **Broadcast**\n\n{msg.caption or ''}")
             sent += 1
+            if sent % 10 == 0:
+                bot.edit_message_text(f"📡 Broadcasting... Sent: {sent}", msg.from_user.id, status_msg.message_id)
             time.sleep(0.1)
         except:
             failed += 1
     
-    bot.send_message(msg.from_user.id, f"✅ Broadcast Complete\nSent: {sent}\nFailed: {failed}")
+    bot.edit_message_text(
+        f"✅ Broadcast Complete\nSent: {sent}\nFailed: {failed}",
+        msg.from_user.id,
+        status_msg.message_id
+    )
     log_admin_action(msg.from_user.id, "BROADCAST", {"sent": sent, "failed": failed})
     user_states.pop(msg.from_user.id, None)
 
@@ -2062,10 +2288,18 @@ def handle_screenshot(msg):
         "created_at": datetime.utcnow()
     }).inserted_id
     
+    # Notify admin with buttons
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("✅ Approve", callback_data=f"app_req_{recharge_id}"),
+        InlineKeyboardButton("❌ Reject", callback_data=f"rej_req_{recharge_id}")
+    )
+    
     bot.send_photo(
         ADMIN_ID,
         msg.photo[-1].file_id,
-        caption=f"💰 New Recharge\nUser: {user_id}\nAmount: {format_currency(data['amount'])}\nUTR: {data['utr']}\nID: {recharge_id}"
+        caption=f"💰 New Recharge\nUser: {user_id}\nAmount: {format_currency(data['amount'])}\nUTR: {data['utr']}\nID: {recharge_id}",
+        reply_markup=markup
     )
     
     bot.send_message(user_id, "✅ Payment submitted! Admin will approve soon.", reply_markup=get_main_keyboard())
