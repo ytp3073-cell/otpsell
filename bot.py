@@ -48,6 +48,7 @@ admin_deduct_state = {}
 admin_add_key_state = {}
 edit_category_state = {}
 admin_remove_state = {}
+edit_loader_state = {}
 
 # Default Categories
 DEFAULT_CATEGORIES = {
@@ -131,6 +132,10 @@ def get_admin_keyboard():
         KeyboardButton("📦 Bulk Add Keys")
     )
     keyboard.add(
+        KeyboardButton("✏️ Edit Loader Name"),
+        KeyboardButton("💰 Edit Loader Price")
+    )
+    keyboard.add(
         KeyboardButton("📁 Manage Categories"),
         KeyboardButton("👥 Users List")
     )
@@ -158,6 +163,13 @@ def get_buy_keyboard():
     for key, data in KEY_CATEGORIES.items():
         keyboard.add(KeyboardButton(data['name']))
     keyboard.add(KeyboardButton("🔙 Main Menu"))
+    return keyboard
+
+def get_loader_edit_keyboard():
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    for key, data in KEY_CATEGORIES.items():
+        keyboard.add(KeyboardButton(f"📌 {data['name']}"))
+    keyboard.add(KeyboardButton("🔙 Admin Panel"))
     return keyboard
 
 # -----------------------
@@ -221,6 +233,11 @@ def log_admin_action(admin_id, action, details):
         "timestamp": datetime.utcnow()
     })
 
+def refresh_categories():
+    global KEY_CATEGORIES
+    KEY_CATEGORIES = load_categories()
+    return KEY_CATEGORIES
+
 # -----------------------
 # START HANDLER
 # -----------------------
@@ -239,7 +256,7 @@ def start(msg):
    🎮 BGMI KEY SHOP 🎮   
 ╚══════════════════╝
 
-🔥 Available Categories:"""
+🔥 Available Loaders:"""
     
     for data in KEY_CATEGORIES.values():
         welcome += f"\n• {data['emoji']} {data['name']}"
@@ -289,9 +306,8 @@ def help_command(msg):
         text += "/deletecoupon [code] - Delete coupon\n"
         text += "/coupons - List coupons\n"
         text += "/sales - View sales report\n"
-        text += "/addcat [key|name|price|emoji|desc] - Add category\n"
-        text += "/editcat [key|field|value] - Edit category\n"
-        text += "/delcat [key] - Delete category"
+        text += "/editname [loader_key] [new_name] - Edit loader name\n"
+        text += "/editprice [loader_key] [new_price] - Edit loader price"
     
     bot.reply_to(msg, text, parse_mode="Markdown")
 
@@ -309,12 +325,12 @@ def main_menu(msg):
 @bot.message_handler(commands=['buy'])
 def buy_keys(msg):
     user_id = msg.from_user.id
-    text = "🎮 **Select Category:**\n\n"
+    text = "🎮 **Select Loader:**\n\n"
     
     for key, data in KEY_CATEGORIES.items():
         count = keys_col.count_documents({"category": key, "status": "available"})
-        text += f"{data['emoji']} {data['name']}\n"
-        text += f"💰 {format_currency(data['price'])} | 📦 {count} available\n"
+        text += f"{data['emoji']} **{data['name']}**\n"
+        text += f"💰 Price: {format_currency(data['price'])} | 📦 Available: {count}\n"
         if data['description']:
             text += f"📝 {data['description']}\n"
         text += "\n"
@@ -339,7 +355,7 @@ def show_keys(msg):
             break
     
     if not cat_data:
-        bot.send_message(user_id, "❌ Category not found!", reply_markup=get_buy_keyboard())
+        bot.send_message(user_id, "❌ Loader not found!", reply_markup=get_buy_keyboard())
         return
     
     # Get available keys
@@ -356,7 +372,6 @@ def show_keys(msg):
     
     markup = InlineKeyboardMarkup(row_width=2)
     for i, key in enumerate(keys[:8], 1):
-        # Show if key has details
         if key.get('details'):
             btn_text = f"📝 Key #{i} (Has Details)"
         else:
@@ -366,7 +381,7 @@ def show_keys(msg):
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
 
 # -----------------------
-# VIEW KEY DETAILS (Before Purchase) - SIRF DETAILS DIKHENGE, KEY NAHI
+# VIEW KEY DETAILS (Before Purchase)
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_"))
 def view_key_details(call):
@@ -382,12 +397,10 @@ def view_key_details(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # 🎯 SIRF DETAILS DIKHENGE - KEY CODE NAHI DIKHEGA
         text = f"{cat_data['emoji']} **{cat_data['name']}**\n"
         text += f"💰 **Price:** {format_currency(key['price'])}\n\n"
         
         if key.get('details'):
-            # Admin ki exact details - bilkul waisi hi
             text += f"📝 **Key Details:**\n```\n{key['details']}\n```\n"
         else:
             text += "ℹ️ No additional details available.\n\n"
@@ -414,7 +427,7 @@ def view_key_details(call):
         bot.answer_callback_query(call.id, "❌ Error loading details!", show_alert=True)
 
 # -----------------------
-# PROCESS PURCHASE - DETAILS + KEY DONO DIKHENGE
+# PROCESS PURCHASE
 # -----------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def process_purchase(call):
@@ -474,19 +487,15 @@ def process_purchase(call):
         
         cat_data = KEY_CATEGORIES[key['category']]
         
-        # 🎯 AFTER PURCHASE - DETAILS + KEY DONO DIKHENGE
         text = f"✅ **Purchase Successful!**\n\n"
         text += f"🎮 {cat_data['emoji']} {cat_data['name']}\n"
         text += f"💰 Paid: {format_currency(price)}\n"
         text += f"💳 Remaining: {format_currency(get_balance(user_id))}\n\n"
         
-        # Pehle details dikhao
         if key.get('details'):
             text += f"📝 **Key Details:**\n```\n{key['details']}\n```\n\n"
         
-        # Phir key code dikhao - YEH SIRF YAHAN DIKHEGA
         text += f"🔑 **Your Key Code:**\n`{key['key']}`\n\n"
-        
         text += "✨ Save these details and use in game!"
         
         bot.edit_message_text(
@@ -622,10 +631,10 @@ def about(msg):
     users = users_col.count_documents({})
     
     text = f"ℹ️ **About Bot**\n\n"
-    text += f"📦 Available: {total}\n"
-    text += f"✅ Sold: {sold}\n"
-    text += f"👥 Users: {users}\n"
-    text += f"📁 Categories: {len(KEY_CATEGORIES)}"
+    text += f"📦 Available Keys: {total}\n"
+    text += f"✅ Sold Keys: {sold}\n"
+    text += f"👥 Total Users: {users}\n"
+    text += f"📁 Loaders: {len(KEY_CATEGORIES)}"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown", reply_markup=get_main_keyboard())
 
@@ -646,13 +655,19 @@ def admin_panel(msg):
     pending = recharges_col.count_documents({"status": "pending"})
     
     text = f"👑 **Admin Panel**\n\n"
-    text += f"📊 **Stats:**\n"
+    text += f"📊 **Statistics:**\n"
     text += f"• Total Keys: {total}\n"
     text += f"• Available: {available}\n"
     text += f"• Sold: {sold}\n"
     text += f"• Users: {users}\n"
-    text += f"• Pending: {pending}\n\n"
-    text += f"Use buttons below or commands from /help"
+    text += f"• Pending Recharges: {pending}\n\n"
+    
+    text += "📁 **Loaders:**\n"
+    for key, data in KEY_CATEGORIES.items():
+        loader_keys = keys_col.count_documents({"category": key})
+        text += f"• {data['emoji']} {data['name']}: {loader_keys} keys\n"
+    
+    text += "\n🛠️ Use buttons below to manage:"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown", reply_markup=get_admin_keyboard())
 
@@ -680,13 +695,287 @@ def stats_command(msg):
     bot.reply_to(msg, text, parse_mode="Markdown")
 
 # -----------------------
-# ADD KEY - YAHAN ADMIN DETAILS AUR KEY CODE DONO DALEGA
+# EDIT LOADER NAME
+# -----------------------
+@bot.message_handler(func=lambda msg: msg.text == "✏️ Edit Loader Name" and is_admin(msg.from_user.id))
+def edit_loader_name_start(msg):
+    user_id = msg.from_user.id
+    
+    text = "✏️ **Edit Loader Name**\n\n"
+    text += "Select which loader's name you want to change:\n\n"
+    
+    for key, data in KEY_CATEGORIES.items():
+        text += f"• {data['emoji']} {data['name']} (Key: `{key}`)\n"
+    
+    text += "\n**OR** use command: `/editname [loader_key] [new_name]`\n"
+    text += "Example: `/editname weekend 🎮 New Weekend Loader`"
+    
+    bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=get_loader_edit_keyboard())
+    edit_loader_state[user_id] = {"action": "name", "step": "select"}
+
+@bot.message_handler(commands=['editname'])
+def edit_name_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split(maxsplit=2)
+        if len(parts) < 3:
+            bot.reply_to(msg, "❌ Usage: /editname [loader_key] [new_name]\nExample: /editname weekend 🎮 New Weekend Loader")
+            return
+        
+        key = parts[1].lower()
+        new_name = parts[2].strip()
+        
+        if key not in KEY_CATEGORIES:
+            bot.reply_to(msg, f"❌ Loader key '{key}' not found! Available keys: {', '.join(KEY_CATEGORIES.keys())}")
+            return
+        
+        old_name = KEY_CATEGORIES[key]['name']
+        
+        # Update in database
+        categories_col.update_one(
+            {"key": key},
+            {"$set": {"name": new_name}}
+        )
+        
+        # Reload categories
+        refresh_categories()
+        
+        bot.reply_to(
+            msg,
+            f"✅ **Loader Name Updated!**\n\n"
+            f"Loader: {KEY_CATEGORIES[key]['emoji']}\n"
+            f"Old Name: {old_name}\n"
+            f"New Name: {new_name}",
+            parse_mode="Markdown"
+        )
+        
+        log_admin_action(msg.from_user.id, "EDIT_LOADER_NAME", {"key": key, "old": old_name, "new": new_name})
+        
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
+                    msg.text.startswith("📌") and is_admin(msg.from_user.id))
+def handle_loader_selection(msg):
+    user_id = msg.from_user.id
+    selected_name = msg.text.replace("📌", "").strip()
+    
+    # Find the key for this name
+    selected_key = None
+    for key, data in KEY_CATEGORIES.items():
+        if data['name'] == selected_name:
+            selected_key = key
+            break
+    
+    if not selected_key:
+        bot.send_message(user_id, "❌ Loader not found! Please select from buttons.")
+        return
+    
+    edit_loader_state[user_id]["key"] = selected_key
+    edit_loader_state[user_id]["step"] = "waiting_name"
+    
+    current_name = KEY_CATEGORIES[selected_key]['name']
+    
+    bot.send_message(
+        user_id,
+        f"📝 Enter new name for {KEY_CATEGORIES[selected_key]['emoji']} {current_name}:\n\n"
+        f"Example: `{current_name} 2024` or `New Loader Name`"
+    )
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
+                    edit_loader_state[msg.from_user.id].get("step") == "waiting_name" and 
+                    is_admin(msg.from_user.id))
+def handle_new_name(msg):
+    user_id = msg.from_user.id
+    new_name = msg.text.strip()
+    key = edit_loader_state[user_id]["key"]
+    
+    if not new_name:
+        bot.send_message(user_id, "❌ Name cannot be empty! Enter new name:")
+        return
+    
+    old_name = KEY_CATEGORIES[key]['name']
+    
+    # Update in database
+    categories_col.update_one(
+        {"key": key},
+        {"$set": {"name": new_name}}
+    )
+    
+    # Reload categories
+    refresh_categories()
+    
+    bot.send_message(
+        user_id,
+        f"✅ **Loader Name Updated!**\n\n"
+        f"Loader: {KEY_CATEGORIES[key]['emoji']}\n"
+        f"Old Name: {old_name}\n"
+        f"New Name: {new_name}",
+        parse_mode="Markdown"
+    )
+    
+    log_admin_action(user_id, "EDIT_LOADER_NAME", {"key": key, "old": old_name, "new": new_name})
+    edit_loader_state.pop(user_id, None)
+
+# -----------------------
+# EDIT LOADER PRICE
+# -----------------------
+@bot.message_handler(func=lambda msg: msg.text == "💰 Edit Loader Price" and is_admin(msg.from_user.id))
+def edit_loader_price_start(msg):
+    user_id = msg.from_user.id
+    
+    text = "💰 **Edit Loader Price**\n\n"
+    text += "Select which loader's price you want to change:\n\n"
+    
+    for key, data in KEY_CATEGORIES.items():
+        text += f"• {data['emoji']} {data['name']} - {format_currency(data['price'])} (Key: `{key}`)\n"
+    
+    text += "\n**OR** use command: `/editprice [loader_key] [new_price]`\n"
+    text += "Example: `/editprice weekend 59`"
+    
+    bot.send_message(user_id, text, parse_mode="Markdown", reply_markup=get_loader_edit_keyboard())
+    edit_loader_state[user_id] = {"action": "price", "step": "select"}
+
+@bot.message_handler(commands=['editprice'])
+def edit_price_command(msg):
+    if not is_admin(msg.from_user.id):
+        return
+    
+    try:
+        parts = msg.text.split()
+        if len(parts) != 3:
+            bot.reply_to(msg, "❌ Usage: /editprice [loader_key] [new_price]\nExample: /editprice weekend 59")
+            return
+        
+        key = parts[1].lower()
+        new_price = float(parts[2])
+        
+        if key not in KEY_CATEGORIES:
+            bot.reply_to(msg, f"❌ Loader key '{key}' not found! Available keys: {', '.join(KEY_CATEGORIES.keys())}")
+            return
+        
+        if new_price <= 0:
+            bot.reply_to(msg, "❌ Price must be positive!")
+            return
+        
+        old_price = KEY_CATEGORIES[key]['price']
+        
+        # Update in database
+        categories_col.update_one(
+            {"key": key},
+            {"$set": {"price": new_price}}
+        )
+        
+        # Update all unsold keys in this category
+        keys_col.update_many(
+            {"category": key, "status": "available"},
+            {"$set": {"price": new_price}}
+        )
+        
+        # Reload categories
+        refresh_categories()
+        
+        bot.reply_to(
+            msg,
+            f"✅ **Loader Price Updated!**\n\n"
+            f"Loader: {KEY_CATEGORIES[key]['emoji']} {KEY_CATEGORIES[key]['name']}\n"
+            f"Old Price: {format_currency(old_price)}\n"
+            f"New Price: {format_currency(new_price)}",
+            parse_mode="Markdown"
+        )
+        
+        log_admin_action(msg.from_user.id, "EDIT_LOADER_PRICE", {"key": key, "old": old_price, "new": new_price})
+        
+    except ValueError:
+        bot.reply_to(msg, "❌ Invalid price! Please enter a number.")
+    except Exception as e:
+        bot.reply_to(msg, f"❌ Error: {str(e)}")
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
+                    edit_loader_state[msg.from_user.id].get("step") == "select" and 
+                    msg.text.startswith("📌") and is_admin(msg.from_user.id))
+def handle_price_selection(msg):
+    user_id = msg.from_user.id
+    selected_name = msg.text.replace("📌", "").strip()
+    
+    # Find the key for this name
+    selected_key = None
+    for key, data in KEY_CATEGORIES.items():
+        if data['name'] == selected_name:
+            selected_key = key
+            break
+    
+    if not selected_key:
+        bot.send_message(user_id, "❌ Loader not found! Please select from buttons.")
+        return
+    
+    edit_loader_state[user_id]["key"] = selected_key
+    edit_loader_state[user_id]["step"] = "waiting_price"
+    
+    current_price = KEY_CATEGORIES[selected_key]['price']
+    
+    bot.send_message(
+        user_id,
+        f"💰 Enter new price for {KEY_CATEGORIES[selected_key]['emoji']} {KEY_CATEGORIES[selected_key]['name']}:\n"
+        f"Current Price: {format_currency(current_price)}\n\n"
+        f"Example: `59` or `399`"
+    )
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in edit_loader_state and 
+                    edit_loader_state[msg.from_user.id].get("step") == "waiting_price" and 
+                    is_admin(msg.from_user.id))
+def handle_new_price(msg):
+    user_id = msg.from_user.id
+    
+    try:
+        new_price = float(msg.text.strip())
+        key = edit_loader_state[user_id]["key"]
+        
+        if new_price <= 0:
+            bot.send_message(user_id, "❌ Price must be positive! Enter again:")
+            return
+        
+        old_price = KEY_CATEGORIES[key]['price']
+        
+        # Update in database
+        categories_col.update_one(
+            {"key": key},
+            {"$set": {"price": new_price}}
+        )
+        
+        # Update all unsold keys in this category
+        keys_col.update_many(
+            {"category": key, "status": "available"},
+            {"$set": {"price": new_price}}
+        )
+        
+        # Reload categories
+        refresh_categories()
+        
+        bot.send_message(
+            user_id,
+            f"✅ **Loader Price Updated!**\n\n"
+            f"Loader: {KEY_CATEGORIES[key]['emoji']} {KEY_CATEGORIES[key]['name']}\n"
+            f"Old Price: {format_currency(old_price)}\n"
+            f"New Price: {format_currency(new_price)}",
+            parse_mode="Markdown"
+        )
+        
+        log_admin_action(user_id, "EDIT_LOADER_PRICE", {"key": key, "old": old_price, "new": new_price})
+        edit_loader_state.pop(user_id, None)
+        
+    except ValueError:
+        bot.send_message(user_id, "❌ Invalid price! Enter a number:")
+
+# -----------------------
+# ADD KEY
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['addkey'])
 def add_key_start(msg):
     if isinstance(msg, telebot.types.Message) and msg.text.startswith('/addkey'):
-        # Handle command format
         bot.reply_to(msg, "Please use the button to add key:\n👑 Admin Panel → ➕ Add Key")
         return
         
@@ -694,7 +983,7 @@ def add_key_start(msg):
     for key, data in KEY_CATEGORIES.items():
         markup.add(InlineKeyboardButton(f"{data['emoji']} {data['name']}", callback_data=f"addcat_{key}"))
     
-    bot.send_message(msg.from_user.id, "📝 Select category:", reply_markup=markup)
+    bot.send_message(msg.from_user.id, "📝 Select loader category:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("addcat_"))
 def add_key_category(call):
@@ -723,7 +1012,6 @@ def handle_key_code(msg):
         bot.send_message(user_id, "❌ Key code cannot be empty! Send key code:")
         return
     
-    # Store key code and move to next step
     admin_add_key_state[user_id]["key_code"] = key_code
     admin_add_key_state[user_id]["step"] = "waiting_details"
     
@@ -752,7 +1040,6 @@ def handle_details(msg):
         bot.send_message(user_id, "❌ Details cannot be empty! Send details:")
         return
     
-    # Save to database
     keys_col.insert_one({
         "key": key_code,
         "category": category,
@@ -768,9 +1055,9 @@ def handle_details(msg):
     bot.send_message(
         user_id,
         f"✅ **Key Added Successfully!**\n\n"
-        f"Category: {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
+        f"Loader: {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
         f"Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
-        f"Available in category: {count}\n\n"
+        f"Available in this loader: {count}\n\n"
         f"🔑 **Key Code (Sirf buy ke baad dikhega):**\n`{key_code}`\n\n"
         f"📝 **Details (Preview aur buy ke baad dono jagah dikhenge):**\n```\n{details}\n```"
     )
@@ -785,7 +1072,6 @@ def handle_details(msg):
 @bot.message_handler(commands=['keys'])
 def key_list(msg):
     if isinstance(msg, telebot.types.Message) and msg.text.startswith('/keys'):
-        # Show detailed key list
         text = "📋 **All Keys**\n\n"
         all_keys = list(keys_col.find().sort("added_at", -1).limit(20))
         
@@ -801,7 +1087,6 @@ def key_list(msg):
         bot.reply_to(msg, text, parse_mode="Markdown")
         return
     
-    # Button se aaya hai to summary dikhao
     text = "📋 **Key Inventory**\n\n"
     
     for key, data in KEY_CATEGORIES.items():
@@ -844,7 +1129,6 @@ def remove_key_command(msg):
 def remove_key_start(msg):
     user_id = msg.from_user.id
     
-    # Sab categories se keys collect karo
     all_keys = []
     for cat_key, cat_data in KEY_CATEGORIES.items():
         keys = list(keys_col.find({"category": cat_key, "status": "available"}).limit(5))
@@ -884,7 +1168,7 @@ def confirm_remove(call):
         cat_name = KEY_CATEGORIES[key['category']]['name']
         
         text = f"🗑 **Confirm Removal**\n\n"
-        text += f"Category: {cat_name}\n"
+        text += f"Loader: {cat_name}\n"
         text += f"Key Code: `{key['key']}`\n\n"
         
         if key.get('details'):
@@ -925,7 +1209,7 @@ def process_remove(call):
         
         bot.edit_message_text(
             f"✅ **Key Removed Successfully!**\n\n"
-            f"Category: {KEY_CATEGORIES[key['category']]['name']}\n"
+            f"Loader: {KEY_CATEGORIES[key['category']]['name']}\n"
             f"Key Code: `{key['key']}`",
             call.message.chat.id,
             call.message.message_id,
@@ -958,10 +1242,10 @@ def bulk_add_start(msg):
     text += "Examples:\n"
     text += "• `weekend:BRUTAL123|🎮 Brutal Asia,BRUTAL456|🎮 Brutal Europe`\n"
     text += "• `royalty:ROYAL30|🏆 30 Days Pass,ROYAL60|🏆 60 Days Pass`\n\n"
-    text += "Categories:\n"
+    text += "Available Loaders:\n"
     
     for key, data in KEY_CATEGORIES.items():
-        text += f"• {key}: {data['emoji']} {data['name']}\n"
+        text += f"• `{key}` - {data['emoji']} {data['name']}\n"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
     user_states[msg.from_user.id] = "admin_bulk"
@@ -977,7 +1261,7 @@ def process_bulk(msg):
         category = category.strip().lower()
         
         if category not in KEY_CATEGORIES:
-            bot.send_message(msg.from_user.id, f"❌ Invalid category!")
+            bot.send_message(msg.from_user.id, f"❌ Invalid loader! Available: {', '.join(KEY_CATEGORIES.keys())}")
             return
         
         items = [k.strip() for k in items_str.split(',') if k.strip()]
@@ -989,14 +1273,12 @@ def process_bulk(msg):
                 if '|' in item:
                     key_code, details = item.split('|', 1)
                 else:
-                    # If no details, use key code as details too
                     key_code = item
                     details = item
                 
                 key_code = key_code.strip()
                 details = details.strip()
                 
-                # Check if key already exists
                 if keys_col.find_one({"key": key_code}):
                     errors += 1
                     continue
@@ -1017,7 +1299,7 @@ def process_bulk(msg):
         
         bot.send_message(
             msg.from_user.id, 
-            f"✅ Added: {added} keys\n❌ Errors/Skipped: {errors}\nCategory: {KEY_CATEGORIES[category]['name']}"
+            f"✅ Added: {added} keys\n❌ Errors/Skipped: {errors}\nLoader: {KEY_CATEGORIES[category]['name']}"
         )
         log_admin_action(msg.from_user.id, "BULK_ADD", {"category": category, "added": added, "errors": errors})
         
@@ -1031,7 +1313,7 @@ def process_bulk(msg):
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📁 Manage Categories" and is_admin(msg.from_user.id))
 def manage_categories(msg):
-    text = "📁 **Category Management**\n\n"
+    text = "📁 **Loader Management**\n\n"
     
     for key, data in KEY_CATEGORIES.items():
         text += f"{data['emoji']} **{data['name']}**\n"
@@ -1041,9 +1323,9 @@ def manage_categories(msg):
         text += "\n"
     
     text += "Commands:\n"
-    text += "/addcat key|name|price|emoji|desc\n"
-    text += "/editcat key|field|value\n"
-    text += "/delcat key\n\n"
+    text += "/addcat key|name|price|emoji|desc - Add loader\n"
+    text += "/editcat key|field|value - Edit loader\n"
+    text += "/delcat key - Delete loader\n\n"
     text += "Example: /addcat brutal|🎮 Brutal|30|🎮|Brutal server keys"
     
     bot.send_message(msg.from_user.id, text, parse_mode="Markdown")
@@ -1065,7 +1347,7 @@ def add_category(msg):
         desc = parts[4].strip() if len(parts) > 4 else ""
         
         if key in KEY_CATEGORIES:
-            bot.reply_to(msg, "❌ Category already exists!")
+            bot.reply_to(msg, "❌ Loader already exists!")
             return
         
         categories_col.insert_one({
@@ -1077,8 +1359,8 @@ def add_category(msg):
             "status": "active"
         })
         
-        load_categories()
-        bot.reply_to(msg, f"✅ Category {emoji} {name} added!")
+        refresh_categories()
+        bot.reply_to(msg, f"✅ Loader {emoji} {name} added!")
         
     except Exception as e:
         bot.reply_to(msg, f"❌ Error: {str(e)}")
@@ -1101,9 +1383,15 @@ def edit_category(msg):
             value = float(value)
         
         categories_col.update_one({"key": key}, {"$set": {field: value}})
-        load_categories()
         
-        bot.reply_to(msg, f"✅ Category {key} updated!")
+        if field == "price":
+            keys_col.update_many(
+                {"category": key, "status": "available"},
+                {"$set": {"price": value}}
+            )
+        
+        refresh_categories()
+        bot.reply_to(msg, f"✅ Loader {key} updated!")
         
     except Exception as e:
         bot.reply_to(msg, f"❌ Error: {str(e)}")
@@ -1117,14 +1405,14 @@ def delete_category(msg):
         key = msg.text.split()[1].lower()
         
         if key not in KEY_CATEGORIES:
-            bot.reply_to(msg, "❌ Category not found!")
+            bot.reply_to(msg, "❌ Loader not found!")
             return
         
         keys_col.delete_many({"category": key})
         categories_col.delete_one({"key": key})
-        load_categories()
+        refresh_categories()
         
-        bot.reply_to(msg, f"✅ Category deleted with all keys!")
+        bot.reply_to(msg, f"✅ Loader deleted with all keys!")
         
     except Exception as e:
         bot.reply_to(msg, f"❌ Error: {str(e)}")
@@ -1138,7 +1426,7 @@ def users_list(msg):
     total = users_col.count_documents({})
     recent = list(users_col.find().sort("joined_at", -1).limit(10))
     
-    text = f"👥 **Users: {total}**\n\n**Recent Users:**\n"
+    text = f"👥 **Total Users: {total}**\n\n**Recent Users:**\n"
     for user in recent:
         name = user.get('name', 'Unknown')[:15]
         uid = user['user_id']
@@ -1721,7 +2009,7 @@ def sales_report(msg):
     text += f"**This Week:** {week_count} keys\n"
     text += f"**This Month:** {month_count} keys\n\n"
     text += f"**All Time:** {total_sold} keys | {format_currency(total_revenue)}\n\n"
-    text += f"**Category Breakdown (Today):**\n"
+    text += f"**Loader Breakdown (Today):**\n"
     
     for key, data in KEY_CATEGORIES.items():
         cat_sales = [k for k in today_sales if k['category'] == key]
@@ -1774,7 +2062,6 @@ def handle_screenshot(msg):
         "created_at": datetime.utcnow()
     }).inserted_id
     
-    # Notify admin
     bot.send_photo(
         ADMIN_ID,
         msg.photo[-1].file_id,
@@ -1798,7 +2085,7 @@ def fallback(msg):
 if __name__ == "__main__":
     logger.info("🚀 Bot Started!")
     logger.info(f"Admin ID: {ADMIN_ID}")
-    logger.info(f"Categories: {len(KEY_CATEGORIES)}")
+    logger.info(f"Loaders: {len(KEY_CATEGORIES)}")
     
     # Create indexes
     try:
