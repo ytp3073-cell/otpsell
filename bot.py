@@ -500,6 +500,9 @@ def view_key_details(call):
         else:
             text += "ℹ️ No additional details available.\n\n"
         
+        if key.get('apk_file_id'):
+            text += "📁 **APK File:** Available with this key\n\n"
+        
         # Check for price buttons
         if cat_data and cat_data.get('buttons'):
             text += "\n**💵 Select Price:**\n"
@@ -587,6 +590,8 @@ def process_purchase(call):
             "category": key['category'],
             "price": price,
             "details": key.get('details', ''),
+            "apk_file_id": key.get('apk_file_id'),
+            "apk_file_name": key.get('apk_file_name'),
             "purchased_at": datetime.utcnow()
         })
         
@@ -609,8 +614,20 @@ def process_purchase(call):
         
         text += f"🔑 **Key:**\n`{key['key']}`"
         
+        # Pehle key details bhejo
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
                             parse_mode="Markdown")
+        
+        # Agar APK file hai toh usse alag se bhejo
+        if key.get('apk_file_id'):
+            apk_caption = f"📁 **APK File:**\n{key.get('apk_file_name', 'Game File')}"
+            bot.send_document(
+                user_id,
+                key['apk_file_id'],
+                caption=apk_caption,
+                parse_mode="Markdown"
+            )
+        
         bot.answer_callback_query(call.id, "✅ Purchased!")
         
     except Exception as e:
@@ -1635,7 +1652,7 @@ def handle_new_price(msg):
     edit_loader_state.pop(user_id, None)
 
 # -----------------------
-# ADD KEY
+# ADD KEY WITH APK
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "➕ Add Key" and is_admin(msg.from_user.id))
 @bot.message_handler(commands=['addkey'])
@@ -1720,34 +1737,65 @@ def handle_details(msg):
         bot.send_message(user_id, "❌ Details cannot be empty!")
         return
     
-    category = admin_add_key_state[user_id]['category']
-    key_code = admin_add_key_state[user_id]['key_code']
-    
-    keys_col.insert_one({
-        "key": key_code,
-        "category": category,
-        "price": KEY_CATEGORIES[category]['price'],
-        "details": details,
-        "status": "available",
-        "added_by": user_id,
-        "added_at": datetime.utcnow()
-    })
-    
-    count = keys_col.count_documents({"category": category, "status": "available"})
+    admin_add_key_state[user_id]["details"] = details
+    admin_add_key_state[user_id]["step"] = "waiting_apk"
     
     bot.send_message(
         user_id,
-        f"✅ **Key Added!**\n\n"
-        f"📁 {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
-        f"💰 Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
-        f"📊 Available: {count}\n\n"
-        f"🔑 Key: `{key_code}`\n"
-        f"📝 Details:\n{details}",
-        parse_mode="Markdown"
+        f"✅ Details saved!\n\n"
+        f"**Step 3:** Send the APK file\n"
+        f"(Send as file/document)"
     )
+
+@bot.message_handler(content_types=['document'], func=lambda msg: msg.from_user.id in admin_add_key_state and 
+                    admin_add_key_state[msg.from_user.id].get("step") == "waiting_apk" and is_admin(msg.from_user.id))
+@set_user_context
+def handle_apk_file(msg):
+    user_id = msg.from_user.id
     
-    log_admin_action(user_id, "ADD_KEY", {"category": category})
-    admin_add_key_state.pop(user_id, None)
+    if msg.document:
+        file_id = msg.document.file_id
+        file_name = msg.document.file_name
+        
+        admin_add_key_state[user_id]["apk_file_id"] = file_id
+        admin_add_key_state[user_id]["apk_file_name"] = file_name
+        
+        category = admin_add_key_state[user_id]['category']
+        key_code = admin_add_key_state[user_id]['key_code']
+        details = admin_add_key_state[user_id]['details']
+        apk_file_id = admin_add_key_state[user_id]['apk_file_id']
+        apk_file_name = admin_add_key_state[user_id]['apk_file_name']
+        
+        keys_col.insert_one({
+            "key": key_code,
+            "category": category,
+            "price": KEY_CATEGORIES[category]['price'],
+            "details": details,
+            "apk_file_id": apk_file_id,
+            "apk_file_name": apk_file_name,
+            "status": "available",
+            "added_by": user_id,
+            "added_at": datetime.utcnow()
+        })
+        
+        count = keys_col.count_documents({"category": category, "status": "available"})
+        
+        bot.send_message(
+            user_id,
+            f"✅ **Key Added with APK!**\n\n"
+            f"📁 {KEY_CATEGORIES[category]['emoji']} {KEY_CATEGORIES[category]['name']}\n"
+            f"💰 Price: {format_currency(KEY_CATEGORIES[category]['price'])}\n"
+            f"📊 Available: {count}\n"
+            f"📁 APK: {apk_file_name}\n\n"
+            f"🔑 Key: `{key_code}`\n"
+            f"📝 Details:\n{details}",
+            parse_mode="Markdown"
+        )
+        
+        log_admin_action(user_id, "ADD_KEY_WITH_APK", {"category": category})
+        admin_add_key_state.pop(user_id, None)
+    else:
+        bot.send_message(user_id, "❌ Please send as document/file!")
 
 # -----------------------
 # KEY LIST
@@ -1767,7 +1815,8 @@ def key_list(msg):
         for key in all_keys:
             cat_name = KEY_CATEGORIES.get(key['category'], {}).get('name', 'Unknown')[:10]
             status = "✅" if key['status'] == "available" else "💰"
-            text += f"{status} {cat_name}: `{key['key'][:15]}...`\n"
+            has_apk = "📁" if key.get('apk_file_id') else ""
+            text += f"{status}{has_apk} {cat_name}: `{key['key'][:15]}...`\n"
         
         bot.reply_to(msg, text, parse_mode="Markdown")
         return
@@ -1877,8 +1926,9 @@ def remove_key_start(msg):
     
     for i, key in enumerate(all_keys, 1):
         cat_name = KEY_CATEGORIES.get(key['category'], {}).get('name', 'Unknown')[:10]
+        has_apk = "📁" if key.get('apk_file_id') else ""
         markup.add(InlineKeyboardButton(
-            f"{i}. {cat_name} - {key['key'][:15]}...",
+            f"{i}. {cat_name} {has_apk} - {key['key'][:15]}...",
             callback_data=f"rem_{key['_id']}"
         ))
     
@@ -1898,7 +1948,9 @@ def confirm_remove(call):
         
         text = f"🗑 **Remove Key?**\n\n"
         text += f"Loader: {cat_name}\n"
-        text += f"Key: `{key['key']}`\n\n"
+        text += f"Key: `{key['key']}`\n"
+        if key.get('apk_file_name'):
+            text += f"APK: {key['apk_file_name']}\n\n"
         text += "Are you sure?"
         
         markup = InlineKeyboardMarkup(row_width=2)
@@ -1938,15 +1990,16 @@ def cancel_remove(call):
     bot.answer_callback_query(call.id, "Cancelled")
 
 # -----------------------
-# BULK ADD KEYS
+# BULK ADD KEYS WITH APK
 # -----------------------
 @bot.message_handler(func=lambda msg: msg.text == "📦 Bulk Add Keys" and is_admin(msg.from_user.id))
 @set_user_context
 def bulk_add_start(msg):
     text = "📦 **Bulk Add Keys**\n\n"
-    text += "Send: `category:key1|details1,key2|details2`\n\n"
+    text += "Send: `category:key1|details1|apk_file_id,key2|details2|apk_file_id`\n\n"
+    text += "For keys without APK: `key|details`\n\n"
     text += "Example:\n"
-    text += "`weekend:BRUTAL1|Email: a@b.com\\nPass: 123,BRUTAL2|Email: c@d.com\\nPass: 456`\n\n"
+    text += "`weekend:BRUTAL1|Email: a@b.com\\nPass: 123|file_id_123,BRUTAL2|Email: c@d.com\\nPass: 456`\n\n"
     text += "Loaders:\n"
     
     for key, data in KEY_CATEGORIES.items():
@@ -1976,14 +2029,20 @@ def process_bulk(msg):
         
         for item in items:
             try:
-                if '|' in item:
-                    key_code, details = item.split('|', 1)
+                parts = item.split('|')
+                if len(parts) == 3:
+                    key_code, details, apk_file_id = parts
+                elif len(parts) == 2:
+                    key_code, details = parts
+                    apk_file_id = None
                 else:
                     key_code = item
                     details = item
+                    apk_file_id = None
                 
                 key_code = key_code.strip()
                 details = details.strip()
+                apk_file_id = apk_file_id.strip() if apk_file_id else None
                 
                 if keys_col.find_one({"key": key_code}):
                     errors += 1
@@ -1994,6 +2053,8 @@ def process_bulk(msg):
                     "category": category,
                     "price": KEY_CATEGORIES[category]['price'],
                     "details": details,
+                    "apk_file_id": apk_file_id,
+                    "apk_file_name": "APK File" if apk_file_id else None,
                     "status": "available",
                     "added_by": msg.from_user.id,
                     "added_at": datetime.utcnow()
