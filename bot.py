@@ -1,12 +1,13 @@
 import logging
 import time
+import sys
+import os
 from datetime import datetime, timedelta
 from bson import ObjectId
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 import qrcode
 from io import BytesIO
-import os
 
 # -----------------------
 # CONFIG - YAHAN APNI VALUES DAALEIN
@@ -54,6 +55,7 @@ add_loader_state = {}
 add_loader_button_state = {}
 dynamic_price_state = {}
 admin_add_admin_state = {}
+delete_loader_state = {}  # New state for loader deletion
 
 # Default Categories
 DEFAULT_CATEGORIES = {
@@ -224,6 +226,12 @@ def set_user_context(func):
         return func(message)
     return wrapper
 
+def restart_bot():
+    """Restart the bot"""
+    logger.info("🔄 Restarting bot...")
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
+
 # -----------------------
 # KEYBOARDS
 # -----------------------
@@ -266,27 +274,31 @@ def get_admin_keyboard():
         KeyboardButton("➕ Add Loader")
     )
     keyboard.add(
-        KeyboardButton("👥 Users List"),
-        KeyboardButton("💸 Pending Recharges")
+        KeyboardButton("🗑 Delete Loader"),  # New button
+        KeyboardButton("👥 Users List")
     )
     keyboard.add(
-        KeyboardButton("📢 Broadcast"),
-        KeyboardButton("📈 Sales Report")
+        KeyboardButton("💸 Pending Recharges"),
+        KeyboardButton("📢 Broadcast")
     )
     keyboard.add(
-        KeyboardButton("🚫 Ban User"),
-        KeyboardButton("✅ Unban User")
+        KeyboardButton("📈 Sales Report"),
+        KeyboardButton("🚫 Ban User")
     )
     keyboard.add(
-        KeyboardButton("💳 Deduct Balance"),
-        KeyboardButton("➕ Add Balance")
+        KeyboardButton("✅ Unban User"),
+        KeyboardButton("💳 Deduct Balance")
     )
     keyboard.add(
-        KeyboardButton("🎟 Coupons"),
-        KeyboardButton("⚙️ Loader Settings")
+        KeyboardButton("➕ Add Balance"),
+        KeyboardButton("🎟 Coupons")
     )
     keyboard.add(
-        KeyboardButton("👑 Admin Management"),
+        KeyboardButton("⚙️ Loader Settings"),
+        KeyboardButton("👑 Admin Management")
+    )
+    keyboard.add(
+        KeyboardButton("🔄 Restart Bot"),  # New button
         KeyboardButton("🔙 Main Menu")
     )
     return keyboard
@@ -334,12 +346,19 @@ def get_loader_edit_keyboard():
     return keyboard
 
 # -----------------------
-# START HANDLER
+# START HANDLER WITH RESTART
 # -----------------------
 @bot.message_handler(commands=['start'])
 @set_user_context
 def start(msg):
     user_id = msg.from_user.id
+    
+    # Check if user is admin and wants to restart
+    if is_admin(user_id) and len(msg.text.split()) > 1 and msg.text.split()[1] == "restart":
+        bot.reply_to(msg, "🔄 Restarting bot...")
+        time.sleep(2)
+        restart_bot()
+        return
     
     if is_user_banned(user_id):
         bot.reply_to(msg, "🚫 **You are banned!** Contact admin.", parse_mode="Markdown")
@@ -367,6 +386,194 @@ Use buttons below to navigate!"""
     bot.send_message(user_id, welcome, reply_markup=get_main_keyboard())
 
 # -----------------------
+# RESTART BOT HANDLER
+# -----------------------
+@bot.message_handler(func=lambda msg: msg.text == "🔄 Restart Bot" and is_admin(msg.from_user.id))
+@set_user_context
+def restart_command(msg):
+    bot.send_message(msg.from_user.id, "🔄 Restarting bot...")
+    time.sleep(2)
+    restart_bot()
+
+# -----------------------
+# DELETE LOADER HANDLER
+# -----------------------
+@bot.message_handler(func=lambda msg: msg.text == "🗑 Delete Loader" and is_admin(msg.from_user.id))
+@bot.message_handler(commands=['delloader'])
+@set_user_context
+def delete_loader_start(msg):
+    user_id = msg.from_user.id
+    
+    if msg.text.startswith('/delloader'):
+        try:
+            key = msg.text.split()[1].lower()
+            
+            if key not in KEY_CATEGORIES:
+                bot.reply_to(msg, f"❌ Loader '{key}' not found!")
+                return
+            
+            cat_data = KEY_CATEGORIES[key]
+            keys_count = keys_col.count_documents({"category": key})
+            
+            # Ask for confirmation
+            text = f"🗑 **Delete Loader?**\n\n"
+            text += f"{cat_data['emoji']} **{cat_data['name']}**\n"
+            text += f"Key: `{key}`\n"
+            text += f"Price: {format_currency(cat_data['price'])}\n"
+            text += f"Total Keys: {keys_count}\n\n"
+            text += "⚠️ This will delete ALL keys in this loader!\n\n"
+            text += "Type `YES` to confirm or `NO` to cancel:"
+            
+            delete_loader_state[user_id] = {"key": key, "step": "confirm"}
+            bot.reply_to(msg, text, parse_mode="Markdown")
+            return
+            
+        except IndexError:
+            bot.reply_to(msg, "❌ Usage: /delloader [loader_key]")
+            return
+        except Exception as e:
+            bot.reply_to(msg, f"❌ Error: {str(e)}")
+            return
+    
+    # Show list of loaders to delete
+    text = "🗑 **Delete Loader**\n\nSelect loader to delete:\n\n"
+    markup = InlineKeyboardMarkup(row_width=1)
+    
+    for key, data in KEY_CATEGORIES.items():
+        keys_count = keys_col.count_documents({"category": key})
+        markup.add(InlineKeyboardButton(
+            f"{data['emoji']} {data['name']} ({keys_count} keys)",
+            callback_data=f"delloader_{key}"
+        ))
+    
+    bot.send_message(user_id, text, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("delloader_"))
+def delete_loader_callback(call):
+    user_id = call.from_user.id
+    
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ Unauthorized!", show_alert=True)
+        return
+    
+    key = call.data.replace("delloader_", "")
+    
+    if key not in KEY_CATEGORIES:
+        bot.answer_callback_query(call.id, "❌ Loader not found!", show_alert=True)
+        return
+    
+    cat_data = KEY_CATEGORIES[key]
+    keys_count = keys_col.count_documents({"category": key})
+    
+    text = f"🗑 **Delete Loader?**\n\n"
+    text += f"{cat_data['emoji']} **{cat_data['name']}**\n"
+    text += f"Key: `{key}`\n"
+    text += f"Price: {format_currency(cat_data['price'])}\n"
+    text += f"Total Keys: {keys_count}\n\n"
+    text += "⚠️ This will delete ALL keys in this loader!\n\n"
+    
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_del_{key}"),
+        InlineKeyboardButton("❌ Cancel", callback_data="cancel_del")
+    )
+    
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                         reply_markup=markup, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_del_"))
+def confirm_delete_loader(call):
+    user_id = call.from_user.id
+    
+    if not is_admin(user_id):
+        bot.answer_callback_query(call.id, "❌ Unauthorized!", show_alert=True)
+        return
+    
+    key = call.data.replace("confirm_del_", "")
+    
+    try:
+        if key not in KEY_CATEGORIES:
+            bot.answer_callback_query(call.id, "❌ Loader not found!", show_alert=True)
+            return
+        
+        cat_data = KEY_CATEGORIES[key]
+        keys_count = keys_col.count_documents({"category": key})
+        
+        # Delete all keys in this category
+        keys_col.delete_many({"category": key})
+        
+        # Delete the category
+        categories_col.delete_one({"key": key})
+        
+        # Refresh categories
+        refresh_categories()
+        
+        text = f"✅ **Loader Deleted!**\n\n"
+        text += f"{cat_data['emoji']} **{cat_data['name']}**\n"
+        text += f"Key: `{key}`\n"
+        text += f"Keys Deleted: {keys_count}\n"
+        text += f"Price: {format_currency(cat_data['price'])}"
+        
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
+                            parse_mode="Markdown")
+        bot.answer_callback_query(call.id, "✅ Loader deleted!")
+        
+        log_admin_action(user_id, "DELETE_LOADER", {"key": key, "name": cat_data['name'], "keys_deleted": keys_count})
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ Error: {str(e)}", show_alert=True)
+
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_del")
+def cancel_delete_loader(call):
+    bot.edit_message_text("✅ Deletion cancelled!", call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id, "Cancelled")
+
+@bot.message_handler(func=lambda msg: msg.from_user.id in delete_loader_state and 
+                    delete_loader_state[msg.from_user.id].get("step") == "confirm" and is_admin(msg.from_user.id))
+@set_user_context
+def process_delete_loader_confirm(msg):
+    user_id = msg.from_user.id
+    text = msg.text.strip().upper()
+    
+    if text == "YES":
+        key = delete_loader_state[user_id]["key"]
+        
+        try:
+            cat_data = KEY_CATEGORIES[key]
+            keys_count = keys_col.count_documents({"category": key})
+            
+            # Delete all keys
+            keys_col.delete_many({"category": key})
+            
+            # Delete category
+            categories_col.delete_one({"key": key})
+            
+            # Refresh
+            refresh_categories()
+            
+            bot.send_message(user_id, 
+                f"✅ **Loader Deleted!**\n\n"
+                f"{cat_data['emoji']} **{cat_data['name']}**\n"
+                f"Keys Deleted: {keys_count}",
+                parse_mode="Markdown"
+            )
+            
+            log_admin_action(user_id, "DELETE_LOADER", {"key": key, "name": cat_data['name'], "keys_deleted": keys_count})
+            
+        except Exception as e:
+            bot.send_message(user_id, f"❌ Error: {str(e)}")
+    
+    elif text == "NO":
+        bot.send_message(user_id, "✅ Deletion cancelled!")
+    
+    else:
+        bot.send_message(user_id, "❌ Please type YES or NO")
+        return
+    
+    delete_loader_state.pop(user_id, None)
+
+# -----------------------
 # HELP COMMAND
 # -----------------------
 @bot.message_handler(commands=['help'])
@@ -392,7 +599,9 @@ def help_command(msg):
         text += "/users - List users\n"
         text += "/pending - View pending recharges\n"
         text += "/sales - View sales report\n"
-        text += "/admins - List all admins"
+        text += "/admins - List all admins\n"
+        text += "/delloader [key] - Delete a loader\n"
+        text += "/start restart - Restart bot"
     
     bot.reply_to(msg, text, parse_mode="Markdown")
 
@@ -464,6 +673,8 @@ def show_keys(msg):
         btn_text = f"🔑 Key #{i}"
         if key.get('details'):
             btn_text = f"📝 Key #{i}"
+        if key.get('apk_file_id'):
+            btn_text += " 📁"
         markup.add(InlineKeyboardButton(btn_text, callback_data=f"view_{key['_id']}"))
     
     bot.send_message(user_id, text, reply_markup=markup, parse_mode="Markdown")
@@ -2704,7 +2915,7 @@ def sales_report(msg):
 @bot.message_handler(func=lambda msg: True)
 @set_user_context
 def fallback(msg):
-    if msg.from_user.id not in user_states and msg.from_user.id not in admin_deduct_state and msg.from_user.id not in admin_add_key_state:
+    if msg.from_user.id not in user_states and msg.from_user.id not in admin_deduct_state and msg.from_user.id not in admin_add_key_state and msg.from_user.id not in delete_loader_state:
         bot.send_message(msg.from_user.id, "❌ Use buttons below!", reply_markup=get_main_keyboard())
 
 # -----------------------
