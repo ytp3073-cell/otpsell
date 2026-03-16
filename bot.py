@@ -12,7 +12,7 @@ from io import BytesIO
 # -----------------------
 # CONFIG - YAHAN APNI VALUES DAALEIN
 # -----------------------
-BOT_TOKEN = '8249817052:AAG4w0Xk3CF23PKjDhwyR3ga_q1N1By5_nc'  # Apna bot token yahan daalein
+BOT_TOKEN = '8520506313:AAFnJz6RbsTmfrDgelH6HAG0tW-0nHVrCD8'  # Apna bot token yahan daalein
 ADMIN_ID = 8413263061  # Apna Telegram ID yahan daalein
 MONGO_URL = 'mongodb+srv://userbot:userbot@cluster0.iweqz.mongodb.net/test?retryWrites=true&w=majority'
 
